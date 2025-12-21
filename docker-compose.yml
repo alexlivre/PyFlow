@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  pyflow-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: uvicorn pyflow.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    networks:
+      - pyflow-network
+
+  pyflow-ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    command: node scripts/dev.mjs
+    ports:
+      - "3000:3000"
+    environment:
+      - NUXT_PUBLIC_API_BASE=http://pyflow-api:8000
+    volumes:
+      - ./ui:/app
+      - /app/node_modules
+      - /app/.nuxt
+      - /app/.output
+    depends_on:
+      - pyflow-api
+    networks:
+      - pyflow-network
+
+networks:
+  pyflow-network:
+    driver: bridge

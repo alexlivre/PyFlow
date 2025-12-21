@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+typer
+litellm
+pydantic>=2.0
+pydantic-settings
+loguru
+psutil
+tenacity
+httpx
+openai>=1.0.0
+pytest

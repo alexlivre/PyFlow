@@ -1,0 +1,9 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.env
+.venv
+ui/node_modules
+ui/.nuxt
+ui/.output
