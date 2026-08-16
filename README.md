@@ -146,6 +146,8 @@ Você pode configurar o PyFlow via variáveis de ambiente ou arquivo `.env` na r
 | `PYFLOW_MAX_OUTPUT_CHARS_DEFAULT`| Limite padrão de caracteres na saída                   | `100000`      |
 | `PYFLOW_MAX_OUTPUT_CHARS_MAX`    | Limite máximo absoluto de caracteres na saída          | `500000`      |
 | `PYFLOW_MAX_CONCURRENT_RUNS`     | Máximo de execuções simultâneas (429 quando excedido)  | `4`           |
+| `PYFLOW_EXECUTION_BACKEND`       | Backend de execução: `subprocess` ou `docker`          | `subprocess`  |
+| `PYFLOW_DOCKER_IMAGE`            | Imagem usada pelo backend docker                       | `python:3.11.9-slim` |
 | `PYFLOW_AI_MAX_TOKENS`           | Máximo de tokens para respostas da IA                  | `800`         |
 | `PYFLOW_AI_TEMPERATURE`          | Temperatura para geração da IA                         | `1.0`         |
 | `PYFLOW_AI_EXPLAINER_PROMPT`     | Persona/prompt do assistente de explicação de erros    | *(padrão interno)* |
@@ -157,6 +159,43 @@ Você pode configurar o PyFlow via variáveis de ambiente ou arquivo `.env` na r
 | `OPENROUTER_API_KEY`             | Chave de API do OpenRouter (fallback)                  | `null`        |
 
 > **Nota:** As chaves de API também podem ser passadas diretamente no corpo da requisição via `ai_config.api_key`.
+
+---
+
+## ⚙️ Modos de Execução
+
+O PyFlow roteia a execução de código através de um backend plugável,
+controlado pela variável `PYFLOW_EXECUTION_BACKEND`:
+
+| Backend      | Descrição                                                            | Uso recomendado                    |
+| ------------ | -------------------------------------------------------------------- | ---------------------------------- |
+| `subprocess` | Executa em um processo filho local, com ambiente restrito (whitelist de variáveis, timeout, limites de saída). Rápido e sem dependências externas. | Desenvolvimento e ambientes de confiança única. |
+| `docker`     | Executa em um container efêmero endurecido (`--network none`, memória e processos limitados, filesystem read-only, sem capabilities, sem novos privilégios, usuário `nobody`). Isolamento real do host. | Produção e ambientes multi-usuário. |
+
+### Trade-off
+
+O backend `subprocess` é mais rápido (sem overhead de container) e
+suporta código interativo (`input()` com o campo `stdin`), mas o
+processo filho compartilha o kernel do host — um código malicioso tem
+acesso ao que o usuário do processo consegue acessar.
+
+O backend `docker` executa o código em um sandbox isolado e fortemente
+restrito; o daemon do Docker deve estar em execução, e a imagem
+`python:3.11.9-slim` é baixada na primeira execução. **Limitação v1**:
+código que usa `input()` com o campo `stdin` não é suportado no modo
+docker (o código trafega pelo stdin do container) — a requisição falha
+com erro explícito em vez de degradar silenciosamente para o subprocesso
+local. Use `subprocess` para código interativo.
+
+Para trocar o backend:
+
+```bash
+# Linux/macOS
+PYFLOW_EXECUTION_BACKEND=docker python -m pyflow.main
+
+# Windows (PowerShell)
+$env:PYFLOW_EXECUTION_BACKEND="docker"; python -m pyflow.main
+```
 
 ---
 

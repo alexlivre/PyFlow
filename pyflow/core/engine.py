@@ -18,18 +18,14 @@ do usuário do ambiente do servidor.
 """
 
 import asyncio
-import sys
-import os
 import json
-import site
-import psutil
+import shutil
+import time
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Awaitable, Callable, List, Optional, Tuple
 from loguru import logger
-import time
 
-from pyflow.core.config import settings
 from pyflow.core.models import RunResponse, Diagnostics
 from pyflow.core.diagnostics import (
     parse_traceback_str,
@@ -38,11 +34,9 @@ from pyflow.core.diagnostics import (
     create_output_limit_diagnostics,
 )
 from pyflow.core.runner_tpl import IMAGES_MARKER_PREFIX, build_rich_script
-
-
-def _sanitize_output(text: str, tmp_file: Path) -> str:
-    """Replace the temp-file path in output with a generic placeholder."""
-    return text.replace(str(tmp_file), "<user_code>")
+from pyflow.core.backends import get_backend
+from pyflow.core.backends._util import _read_stream, _sanitize_output
+from pyflow.core.backends.subprocess_backend import _build_child_env, USER_CODE_FILENAME
 
 
 def _extract_images(stdout: str) -> Tuple[str, List[str]]:
@@ -69,102 +63,6 @@ def _extract_images(stdout: str) -> Tuple[str, List[str]]:
     return "\n".join(kept_lines), images
 
 
-async def _read_stream(
-    stream: asyncio.StreamReader,
-    limit: int,
-    on_chunk: Optional[Callable[[str], None]] = None,
-) -> Tuple[str, bool]:
-    """
-    Reads chunks from an async stream up to a character limit.
-
-    Each decoded chunk is passed to on_chunk (when provided) before the
-    limit check, so streaming consumers see the raw output as it arrives.
-
-    Args:
-        stream: Async StreamReader (stdout or stderr).
-        limit: Maximum number of characters to read.
-        on_chunk: Optional callback invoked with each decoded chunk
-            before the limit is applied.
-
-    Returns:
-        Tuple containing:
-            - str: Content read from the stream.
-            - bool: True if the content was truncated by the limit.
-    """
-    output = []
-    total_chars = 0
-    truncated = False
-
-    while True:
-        # Read small chunks
-        chunk = await stream.read(4096)
-        if not chunk:
-            break
-
-        decoded = chunk.decode("utf-8", errors="replace")
-        if on_chunk is not None:
-            on_chunk(decoded)
-
-        chunk_len = len(decoded)
-
-        if total_chars + chunk_len > limit:
-            remaining = limit - total_chars
-            output.append(decoded[:remaining])
-            truncated = True
-            break
-
-        output.append(decoded)
-        total_chars += chunk_len
-
-    return "".join(output), truncated
-
-
-def _build_child_env() -> dict:
-    """Build a minimal env for the child process.
-
-    A whitelist prevents user code from reading server secrets
-    (API keys, tokens) and keeps the execution environment clean.
-
-    PYTHONUSERBASE is forwarded when the server interpreter has a user
-    site, so the child sees the same user-installed packages (e.g.
-    matplotlib) as the parent. It only exposes an import path, never an
-    environment secret.
-    """
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "PYTHONIOENCODING": "utf-8",
-        "PYTHONUNBUFFERED": "1",
-    }
-    user_base = os.environ.get("PYTHONUSERBASE") or site.USER_BASE
-    if user_base and os.path.isdir(user_base):
-        env["PYTHONUSERBASE"] = user_base
-    return env
-
-
-def _kill_process_tree(pid: int):
-    """
-    Termina um processo e todos os seus processos filhos.
-
-    Utiliza psutil para encontrar e encerrar recursivamente
-    todos os processos na árvore de processos.
-
-    Args:
-        pid: ID do processo pai a terminar.
-
-    Note:
-        Exceções NoSuchProcess são silenciadas caso o processo
-        já tenha sido encerrado.
-    """
-    try:
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-        for child in children:
-            child.kill()
-        parent.kill()
-    except psutil.NoSuchProcess:
-        pass
-
-
 async def _noop_emit(stream: str, data: str) -> None:
     """Default emit callback that discards streamed chunks."""
     return None
@@ -181,7 +79,8 @@ async def execute_code_stream(
     rich_output: bool = False
 ) -> RunResponse:
     """
-    Executa código Python em um subprocesso isolado.
+    Executa código Python através do backend de execução configurado
+    (subprocesso local por padrão, ou sandbox Docker).
 
     Cria um arquivo temporário com o código, executa em um subprocesso
     com timeout e limites de saída, captura stdout/stderr e retorna
@@ -250,105 +149,39 @@ async def execute_code_stream(
         chunk_queue.put_nowait(None)
         await asyncio.gather(emit_task, return_exceptions=True)
 
-    def make_on_chunk(stream: str) -> Callable[[str], None]:
-        def on_chunk(data: str) -> None:
-            chunk_queue.put_nowait((stream, data))
-        return on_chunk
+    def on_output(stream: str, data: str) -> None:
+        chunk_queue.put_nowait((stream, data))
 
-    # 3. Setup Temp File
-    tmp_dir = Path(gettempdir())
-    tmp_file = tmp_dir / f"pyflow_tmp_{request_id}.py"
+    # 3. Setup Work Dir
+    # Per-request directory keeps the temp script name collision-free across
+    # concurrent executions; the backend writes the script inside it.
+    tmp_root = Path(gettempdir()) / f"pyflow_work_{request_id}"
+    tmp_file = tmp_root / USER_CODE_FILENAME
+    tmp_root.mkdir(parents=True, exist_ok=True)
 
-    process = None
     try:
-        tmp_file.write_text(script, encoding="utf-8")
-        
-        # 3. Create Subprocess
-        # Use -u for unbuffered output to catch prints immediately
-        # Use sys.executable to ensure we use the same python interpreter (or standard one)
-        # Spec says: "Rodar snippets Python". Localhost environment.
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "-u", str(tmp_file),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(tmp_dir), # Run in temp dir to avoid polluting project dir
-            env=_build_child_env()
+        # 4. Run Through the Configured Backend
+        # The backend owns the child process (spawn, stdin, timeout kill,
+        # truncation tracking) and returns raw, unprocessed output.
+        raw = await get_backend().run(
+            code=script,
+            stdin=stdin,
+            timeout_seconds=timeout_seconds,
+            max_output_chars=max_output_chars,
+            cwd=str(tmp_root),
+            on_output=on_output,
         )
-        
-        # Write stdin if provided
-        if stdin is not None:
-            if process.stdin:
-                try:
-                    process.stdin.write(stdin.encode("utf-8"))
-                    await process.stdin.drain()
-                    process.stdin.close()
-                except Exception as e:
-                    logger.warning(f"Error writing to stdin: {e}")
 
-        # 4. Read Output with Limits
-        # We need to run reading tasks concurrently
-        read_stdout_task = asyncio.create_task(
-            _read_stream(process.stdout, max_output_chars, on_chunk=make_on_chunk("stdout"))
-        )
-        read_stderr_task = asyncio.create_task(
-            _read_stream(process.stderr, max_output_chars, on_chunk=make_on_chunk("stderr"))
-        )
-        
-        wait_process_task = asyncio.create_task(process.wait())
-        
+        # All reads are done: deliver remaining chunks, then stop the bridge.
+        await flush_emit()
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
         # 5. Handle Timeout
-        # Wait until the process finishes AND both reads complete, or timeout.
-        # A read task may complete early when the output limit is hit while
-        # the process keeps running; that must be reported as truncation,
-        # not as a timeout.
-        done, pending = await asyncio.wait(
-            [wait_process_task, read_stdout_task, read_stderr_task],
-            timeout=timeout_seconds,
-            return_when=asyncio.ALL_COMPLETED,
-        )
-        
-        # Check if process is still running (Timeout case)
-        if process.returncode is None and not wait_process_task.done():
-            _kill_process_tree(process.pid)
-
-            # Close the pipe transports so process.wait() can resolve.
-            # On Windows a pipe with no pending read/write never reports
-            # disconnection, so the exit waiters would never be woken up.
-            transport = process._transport
-            if transport is not None:
-                for fd in (0, 1, 2):
-                    pipe = transport.get_pipe_transport(fd)
-                    if pipe is not None:
-                        pipe.close()
-
-            try:
-                await process.wait()
-            except Exception:
-                pass
-
-            # Cancel read tasks
-            read_stdout_task.cancel()
-            read_stderr_task.cancel()
-
-            # Deliver any chunks read before cancellation, then stop the bridge.
-            await flush_emit()
-
+        if raw.timed_out:
             # If output was already over the limit, report truncation,
             # not timeout (the process was killed for flooding, not hanging).
-            stdout_trunc = (
-                read_stdout_task.done()
-                and not read_stdout_task.cancelled()
-                and read_stdout_task.result()[1]
-            )
-            stderr_trunc = (
-                read_stderr_task.done()
-                and not read_stderr_task.cancelled()
-                and read_stderr_task.result()[1]
-            )
-
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            if stdout_trunc or stderr_trunc:
+            if raw.output_truncated:
                 return RunResponse(
                     status="error",
                     stdout="",
@@ -371,60 +204,39 @@ async def execute_code_stream(
                 request_id=request_id
             )
 
-        # Process finished, await reading tasks to get full output
-        # (There's a chance tasks are not done if process finished very fast?, no, process.wait() is done)
-        # But reading tasks might still be buffering bytes.
-        try:
-            stdout_str, stdout_trunc = await read_stdout_task
-            stderr_str, stderr_trunc = await read_stderr_task
-        except asyncio.CancelledError:
-             # Should not happen if process finished gracefully
-             stdout_str, stdout_trunc = "", False
-             stderr_str, stderr_trunc = "", False
-
-        # All reads are done: deliver remaining chunks, then stop the bridge.
-        await flush_emit()
-
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
         # 6. Check Output Limits
-        if stdout_trunc or stderr_trunc:
-             # If truncated, we should ensure process is dead (although stream reading stops)
-             # If processed finished by itself but output was huge? 
-             # Or if we stopped reading?
-             # Logic above: _read_stream stops reading and returns. process might still be writing?
-             if process.returncode is None:
-                 _kill_process_tree(process.pid)
-            
-             # Rich output: pull any complete or partial images marker out of
-             # the truncated streams, mirroring the finalize branch below.
-             images = []
-             if rich_output:
-                 stdout_str, images = _extract_images(stdout_str)
-                 stderr_str, _ = _extract_images(stderr_str)
+        if raw.output_truncated:
+            stdout_str, stderr_str = raw.stdout, raw.stderr
 
-             # Never leak the server temp path, even in a truncated chunk.
-             stdout_str = _sanitize_output(stdout_str, tmp_file)
-             stderr_str = _sanitize_output(stderr_str, tmp_file)
-             return RunResponse(
+            # Rich output: pull any complete or partial images marker out of
+            # the truncated streams, mirroring the finalize branch below.
+            images = []
+            if rich_output:
+                stdout_str, images = _extract_images(stdout_str)
+                stderr_str, _ = _extract_images(stderr_str)
+
+            # Never leak the server temp path, even in a truncated chunk.
+            stdout_str = _sanitize_output(stdout_str, tmp_file)
+            stderr_str = _sanitize_output(stderr_str, tmp_file)
+            return RunResponse(
                 status="error",
-                stdout=stdout_str + ("\n(truncado)" if stdout_trunc else ""),
-                stderr=stderr_str + ("\n(truncado)" if stderr_trunc else ""),
-                exit_code=process.returncode,
+                stdout=stdout_str,
+                stderr=stderr_str,
+                exit_code=raw.exit_code,
                 execution_time_ms=elapsed_ms,
                 output_truncated=True,
                 images=images,
                 diagnostics=create_output_limit_diagnostics(),
                 request_id=request_id
             )
-            
+
         # 7. Finalize Success/Error
-        status = "success" if process.returncode == 0 else "error"
+        status = "success" if raw.exit_code == 0 else "error"
         diagnostics = None
-        
+
         if status == "error":
             # Parse diagnostics
-            diagnostics = parse_traceback_str(stderr_str, tmp_file.name, include_raw=include_raw_traceback)
+            diagnostics = parse_traceback_str(raw.stderr, tmp_file.name, include_raw=include_raw_traceback)
             if diagnostics and diagnostics.message:
                 diagnostics.message = _sanitize_output(diagnostics.message, tmp_file)
 
@@ -432,20 +244,20 @@ async def execute_code_stream(
         # so the marker never reaches the visible stdout.
         images = []
         if rich_output:
-            stdout_str, images = _extract_images(stdout_str)
+            raw.stdout, images = _extract_images(raw.stdout)
 
         # Never leak the server temp path in any branch; replace it with a
         # generic placeholder. Parsing happens first so the real filename can
         # still locate the user's frame, and raw_traceback keeps its
         # unsanitized-on-request contract.
-        stdout_str = _sanitize_output(stdout_str, tmp_file)
-        stderr_str = _sanitize_output(stderr_str, tmp_file)
+        stdout_str = _sanitize_output(raw.stdout, tmp_file)
+        stderr_str = _sanitize_output(raw.stderr, tmp_file)
 
         return RunResponse(
             status=status,
             stdout=stdout_str,
             stderr=stderr_str,
-            exit_code=process.returncode,
+            exit_code=raw.exit_code,
             execution_time_ms=elapsed_ms,
             output_truncated=False,
             diagnostics=diagnostics,
@@ -470,22 +282,17 @@ async def execute_code_stream(
         
     finally:
         # A cancelled request (client disconnect) leaves the emit loop and the
-        # child process running; stop both before unwinding.
+        # child process running; the backend kills the child on its own
+        # cancellation, so here we only stop the bridge and clean up.
         if not emit_task.done():
             emit_task.cancel()
             await asyncio.gather(emit_task, return_exceptions=True)
-        if process is not None and process.returncode is None:
-            try:
-                _kill_process_tree(process.pid)
-            except Exception:
-                pass
 
-        # Cleanup
-        if tmp_file.exists():
-            try:
-                tmp_file.unlink()
-            except Exception:
-                pass
+        # Cleanup the per-request work dir (script + any user-created files).
+        try:
+            shutil.rmtree(tmp_root, ignore_errors=True)
+        except Exception:
+            pass
 
 
 async def execute_code(
@@ -498,7 +305,7 @@ async def execute_code(
     rich_output: bool = False
 ) -> RunResponse:
     """
-    Executes Python code in an isolated subprocess without streaming.
+    Executes Python code through the configured backend without streaming.
 
     Thin wrapper over execute_code_stream with emit disabled.
 

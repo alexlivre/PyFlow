@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         PYFLOW_MAX_OUTPUT_CHARS_DEFAULT: Limite padrão de saída.
         PYFLOW_MAX_OUTPUT_CHARS_MAX: Limite máximo absoluto de saída.
         PYFLOW_MAX_CONCURRENT_RUNS: Máximo de execuções simultâneas.
+        PYFLOW_EXECUTION_BACKEND: Backend de execução ('subprocess' ou 'docker').
+        PYFLOW_DOCKER_IMAGE: Imagem usada pelo backend docker.
         PYFLOW_AI_MAX_TOKENS: Máximo de tokens para respostas da IA.
         PYFLOW_AI_TEMPERATURE: Temperatura para geração da IA.
         OPENROUTER_API_KEY: Chave de API do OpenRouter (opcional).
@@ -57,6 +59,8 @@ class Settings(BaseSettings):
     PYFLOW_MAX_OUTPUT_CHARS_DEFAULT: int = 100_000
     PYFLOW_MAX_OUTPUT_CHARS_MAX: int = 500_000
     PYFLOW_MAX_CONCURRENT_RUNS: int = 4
+    PYFLOW_EXECUTION_BACKEND: str = "subprocess"
+    PYFLOW_DOCKER_IMAGE: str = "python:3.11.9-slim"
 
     # IA
     PYFLOW_AI_MAX_TOKENS: int = 800
