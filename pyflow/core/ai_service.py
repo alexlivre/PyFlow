@@ -56,6 +56,23 @@ class AIService:
         return "gpt-5" in model_lower
 
     @staticmethod
+    def _supports_json_mode(model: str) -> bool:
+        """
+        Verifica se o modelo suporta response_format json_object.
+
+        Alguns provedores (DeepSeek, Ollama) rejeitam o parâmetro
+        response_format; para eles a chamada é feita sem esse parâmetro.
+
+        Args:
+            model: Identificador do modelo.
+
+        Returns:
+            bool: True se o modelo suporta response_format json_object.
+        """
+        lowered = model.lower()
+        return "deepseek" not in lowered and "ollama" not in lowered
+
+    @staticmethod
     def _is_openrouter(config: AIConfig) -> bool:
         """
         Verifica se a configuração usa OpenRouter.
@@ -312,10 +329,26 @@ class AIService:
         if extra_headers:
             params["extra_headers"] = extra_headers
 
-        if response_format:
+        # Some providers (DeepSeek, Ollama) reject response_format, so only
+        # send it to models that support json_object mode.
+        supports_json_mode = cls._supports_json_mode(model)
+        if response_format and supports_json_mode:
             params["response_format"] = response_format
 
-        response = await acompletion(**params)
+        try:
+            response = await acompletion(**params)
+        except Exception:
+            # A provider that nominally supports json mode can still reject
+            # response_format; retry once without it.
+            if response_format and supports_json_mode:
+                logger.warning(
+                    f"Model {model} rejected response_format; retrying without it"
+                )
+                params.pop("response_format", None)
+                response = await acompletion(**params)
+            else:
+                raise
+
         return response.choices[0].message.content
 
     @classmethod
