@@ -131,8 +131,8 @@ def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = Fal
         if ctx_lines:
             context = "\n".join(ctx_lines)
 
-    # raw_traceback stays unsanitized on purpose when requested;
-    # display stderr is sanitized separately by the route.
+    # raw_traceback stays unsanitized on purpose when requested; the engine
+    # sanitizes display stderr and the parsed message separately.
 
     return Diagnostics(
         error_type=error_type,

@@ -157,3 +157,19 @@ def test_truncated_traceback_does_not_leak_temp_path():
     assert result.output_truncated is True
     assert "<user_code>" in result.stderr
     assert "pyflow_tmp" not in result.stderr
+
+
+def test_error_message_does_not_leak_temp_path():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_msg_leak",
+            code="raise Exception(__file__)",
+            stdin=None,
+            timeout_seconds=5,
+            max_output_chars=1000,
+        )
+    )
+    assert result.status == "error"
+    assert result.diagnostics is not None
+    assert "pyflow_tmp" not in result.diagnostics.message
+    assert "<user_code>" in result.diagnostics.message

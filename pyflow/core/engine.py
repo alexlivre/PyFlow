@@ -321,6 +321,8 @@ async def execute_code(
         if status == "error":
             # Parse diagnostics
             diagnostics = parse_traceback_str(stderr_str, tmp_file.name, include_raw=include_raw_traceback)
+            if diagnostics and diagnostics.message:
+                diagnostics.message = _sanitize_output(diagnostics.message, tmp_file)
 
         # Never leak the server temp path in any branch; replace it with a
         # generic placeholder. Parsing happens first so the real filename can
