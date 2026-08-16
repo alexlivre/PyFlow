@@ -136,3 +136,18 @@ def test_host_header_spoofing_is_rejected():
         },
     )
     assert resp.status_code == 403
+
+
+def test_cors_allows_local_ui_origin():
+    resp = client.get(
+        "/health", headers={"Origin": "http://localhost:3000", "Host": "localhost"}
+    )
+    assert resp.status_code == 200
+    assert "http://localhost:3000" in resp.headers.get("access-control-allow-origin", "")
+
+
+def test_token_route_accepts_any_local_port():
+    resp = client.get(
+        "/auth/token", headers={"Origin": "http://localhost:5173", "Host": "localhost"}
+    )
+    assert resp.status_code == 200
