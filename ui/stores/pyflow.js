@@ -130,6 +130,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                 if (!res.ok) throw new Error('HTTP ' + res.status)
                 const reader = res.body.getReader()
                 const decoder = new TextDecoder()
+                let receivedTerminal = false
                 while (true) {
                     const { done, value } = await reader.read()
                     if (done) break
@@ -138,13 +139,20 @@ export const usePyFlowStore = defineStore('pyflow', {
                     this.streamBuffer = lines.pop() || ''
                     for (const line of lines) {
                         if (!line.trim()) continue
-                        const evt = JSON.parse(line)
+                        let evt
+                        try {
+                            evt = JSON.parse(line)
+                        } catch (e) {
+                            continue
+                        }
                         if (evt.type === 'output') {
                             this.consoleStream += evt.data
                         } else if (evt.type === 'done') {
+                            receivedTerminal = true
                             this.output = evt.result
                             if (evt.result.diagnostics || evt.result.ai_error_help) this.activeTab = 'diagnostics'
                         } else if (evt.type === 'error') {
+                            receivedTerminal = true
                             this.output = {
                                 status: 'error',
                                 stderr: evt.message,
@@ -152,6 +160,14 @@ export const usePyFlowStore = defineStore('pyflow', {
                                 execution_time_ms: 0
                             }
                         }
+                    }
+                }
+                if (!receivedTerminal && this.output === null) {
+                    this.output = {
+                        status: 'error',
+                        stdout: this.consoleStream,
+                        stderr: 'Stream encerrado sem resposta final (servidor caiu?).',
+                        execution_time_ms: 0
                     }
                 }
             } catch (err) {

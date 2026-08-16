@@ -108,6 +108,54 @@ async def test_run_stream_emits_output_before_done():
 
 
 @pytest.mark.asyncio
+async def test_run_stream_timeout_emits_done_not_error():
+    code = "import time; time.sleep(5)"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", timeout=30
+    ) as client:
+        async with client.stream(
+            "POST",
+            "/run/stream",
+            json={"code": code, "timeout_seconds": 1, "ai_explain_on_error": False},
+            headers={**HEADERS, "Host": "localhost"},
+        ) as resp:
+            assert resp.status_code == 200
+            events = []
+            async for line in resp.aiter_lines():
+                if line.strip():
+                    events.append(json.loads(line))
+
+    types = [event["type"] for event in events]
+    assert "done" in types
+    assert "error" not in types
+    done = [event for event in events if event["type"] == "done"][-1]
+    assert done["result"]["diagnostics"]["error_type"] == "Timeout"
+
+
+@pytest.mark.asyncio
+async def test_run_stream_output_limit_truncation():
+    code = "print('x' * 5000)"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", timeout=30
+    ) as client:
+        async with client.stream(
+            "POST",
+            "/run/stream",
+            json={"code": code, "max_output_chars": 100, "ai_explain_on_error": False},
+            headers={**HEADERS, "Host": "localhost"},
+        ) as resp:
+            assert resp.status_code == 200
+            events = []
+            async for line in resp.aiter_lines():
+                if line.strip():
+                    events.append(json.loads(line))
+
+    result = events[-1]["result"]
+    assert result["output_truncated"] is True
+    assert result["diagnostics"]["error_type"] == "OutputLimitExceeded"
+
+
+@pytest.mark.asyncio
 async def test_run_stream_requires_token():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(
