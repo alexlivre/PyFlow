@@ -23,9 +23,12 @@
           </div>
         </div>
         <div class="flex items-center gap-2 ml-4">
-          <span class="badge badge-primary">
-            <span class="status-dot status-dot-success mr-2"></span>
-            Connected
+          <span class="badge" :class="store.apiOnline === false ? 'badge-error' : 'badge-primary'">
+            <span
+              class="status-dot mr-2"
+              :class="store.apiOnline === true ? 'status-dot-success' : store.apiOnline === false ? 'status-dot-error' : 'status-dot-muted'"
+            ></span>
+            {{ store.apiOnline === true ? 'Connected' : store.apiOnline === false ? 'Offline' : 'Connecting…' }}
           </span>
         </div>
       </div>
@@ -506,7 +509,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { usePyFlowStore } from '~/stores/pyflow'
 import { Codemirror } from 'vue-codemirror'
 import { python } from '@codemirror/lang-python'
@@ -515,6 +518,7 @@ import { Decoration } from '@codemirror/view'
 import { StateEffect, StateField } from '@codemirror/state'
 
 const store = usePyFlowStore()
+let healthTimer = null
 const chatInput = ref('')
 const editingConfig = ref(null)
 const isNewConfig = ref(false)
@@ -627,8 +631,16 @@ onMounted(() => {
   store.loadFromStorage()
   store.fetchToken()
 
+  store.refreshHealth()
+  healthTimer = setInterval(() => store.refreshHealth(), 10000)
+
   // Add keyboard shortcut for running code
   window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onUnmounted(() => {
+  clearInterval(healthTimer)
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 const hasDiagnostics = computed(() => {
@@ -843,6 +855,12 @@ if __name__ == "__main__":
 /* Primary soft background */
 .bg-primary-soft {
   background: rgba(99, 102, 241, 0.1);
+}
+
+/* Neutral status dot (connecting state) */
+.status-dot-muted {
+  background: var(--text-muted);
+  box-shadow: 0 0 10px rgba(100, 116, 139, 0.4);
 }
 
 /* Elevated background */

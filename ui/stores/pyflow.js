@@ -14,6 +14,7 @@ export const usePyFlowStore = defineStore('pyflow', {
         // Configuration
         activeConfigId: 'default',
         apiToken: '',
+        apiOnline: null,
         configs: [
             {
                 id: 'default',
@@ -39,6 +40,15 @@ export const usePyFlowStore = defineStore('pyflow', {
                 } catch (e) {
                     console.error('Failed to fetch API token:', e)
                 }
+            }
+        },
+
+        async refreshHealth() {
+            try {
+                await $fetch('/api/health', { headers: { 'X-PyFlow-Token': this.apiToken } })
+                this.apiOnline = true
+            } catch (e) {
+                this.apiOnline = false
             }
         },
 
