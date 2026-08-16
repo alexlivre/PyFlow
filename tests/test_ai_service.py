@@ -3,8 +3,16 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 from pyflow.core.ai_service import AIService
-from pyflow.core.models import AIConfig
+from pyflow.core.models import AIConfig, ChatMessage
+
+
+def test_chat_message_rejects_invalid_role():
+    with pytest.raises(ValidationError):
+        ChatMessage(role="system", content="x")
 
 
 def test_build_model_string_openrouter_passthrough():

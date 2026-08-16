@@ -149,7 +149,7 @@ class ChatMessage(BaseModel):
         content: Conteúdo da mensagem.
     """
 
-    role: str
+    role: Literal["user", "assistant"]
     content: str
 
 
