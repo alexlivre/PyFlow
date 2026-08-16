@@ -511,7 +511,7 @@ import { usePyFlowStore } from '~/stores/pyflow'
 import { Codemirror } from 'vue-codemirror'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { EditorView, Decoration } from '@codemirror/view'
+import { Decoration } from '@codemirror/view'
 import { StateEffect, StateField } from '@codemirror/state'
 
 const store = usePyFlowStore()
@@ -575,7 +575,8 @@ const errorLineField = StateField.define({
           const mark = Decoration.line({
             attributes: { style: 'background: rgba(239,68,68,0.12); border-left: 3px solid #ef4444;' },
           })
-          deco = deco.add(tr.startState.doc, tr.startState.doc.line(e.value), mark)
+          const lineNo = Math.min(e.value, tr.startState.doc.lines)
+          deco = deco.add(tr.startState.doc, tr.startState.doc.line(lineNo), mark)
         }
       }
     }
