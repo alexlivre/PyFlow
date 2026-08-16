@@ -19,6 +19,13 @@ export const usePyFlowStore = defineStore('pyflow', {
         hintTarget: null,
         isHinting: false,
 
+        // Challenges
+        challenges: [],
+        activeChallengeId: null,
+        challengeResult: null,
+        isChallengeRunning: false,
+        showChallengeHint: false,
+
         // Configuration
         activeConfigId: 'default',
         apiToken: '',
@@ -36,7 +43,7 @@ export const usePyFlowStore = defineStore('pyflow', {
 
         // UI State
         showSettings: false,
-        activeTab: 'console' // console, diagnostics, chat
+        activeTab: 'console' // console, diagnostics, chat, challenges
     }),
 
     actions: {
@@ -57,6 +64,41 @@ export const usePyFlowStore = defineStore('pyflow', {
                 this.apiOnline = true
             } catch (e) {
                 this.apiOnline = false
+            }
+        },
+
+        async fetchChallenges() {
+            try {
+                const res = await $fetch('/api/challenges', { headers: this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {} })
+                this.challenges = res
+                if (res.length && !res.find(c => c.id === this.activeChallengeId)) {
+                    this.activeChallengeId = res[0].id
+                }
+            } catch (e) {
+                console.error('Failed to fetch challenges:', e)
+            }
+        },
+
+        async runChallenge() {
+            if (!this.activeChallengeId) return
+            this.isChallengeRunning = true
+            this.challengeResult = null
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
+
+            try {
+                const res = await $fetch('/api/challenges/run', {
+                    method: 'POST',
+                    headers,
+                    body: {
+                        challenge_id: this.activeChallengeId,
+                        code: this.code
+                    }
+                })
+                this.challengeResult = res
+            } catch (err) {
+                this.challengeResult = { error: 'Falha na comunicação com o servidor.\n' + err.message }
+            } finally {
+                this.isChallengeRunning = false
             }
         },
 

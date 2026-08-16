@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models, routes_stream, routes_hint
+from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models, routes_stream, routes_hint, routes_challenges
 from pyflow import __version__
 from pyflow.core.connection import register_cleanup
 
@@ -61,6 +61,7 @@ app.include_router(routes_stream.router)
 app.include_router(routes_chat.router)
 app.include_router(routes_hint.router)
 app.include_router(routes_models.router)
+app.include_router(routes_challenges.router)
 
 # Register cleanup on exit (normal python exit)
 # Note: Uvicorn handles signals, but atexit covers many cases.

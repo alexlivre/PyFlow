@@ -32,7 +32,9 @@ export default defineNuxtConfig({
       '/api/hint': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/hint' },
       '/api/health': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/health' },
       '/api/token': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/auth/token' },
-      '/api/models/openrouter': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/models/openrouter' }
+      '/api/models/openrouter': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/models/openrouter' },
+      '/api/challenges': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/challenges' },
+      '/api/challenges/run': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/challenges/run' }
     }
   }
 })

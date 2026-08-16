@@ -224,6 +224,75 @@ class HintResponse(BaseModel):
     request_id: str
 
 
+# --- Challenges Endpoint ---
+class ChallengeTestResult(BaseModel):
+    """
+    Resultado de um teste individual de desafio.
+
+    Attributes:
+        name: Nome do teste.
+        passed: Se o teste passou.
+        stdout: Saída capturada durante o teste.
+        expected: Valor esperado pelo teste.
+        actual: Valor produzido pelo código do aluno.
+    """
+
+    name: str
+    passed: bool
+    stdout: str
+    expected: str
+    actual: str
+
+
+class ChallengeResult(BaseModel):
+    """
+    Resultado da execução de um desafio.
+
+    Attributes:
+        challenge_id: Identificador do desafio.
+        tests: Resultados individuais de cada teste.
+        passed_count: Quantidade de testes aprovados.
+        total_count: Quantidade total de testes.
+    """
+
+    challenge_id: str
+    tests: List[ChallengeTestResult]
+    passed_count: int
+    total_count: int
+
+
+class ChallengeInfo(BaseModel):
+    """
+    Metadados públicos de um desafio.
+
+    Attributes:
+        id: Identificador do desafio.
+        title: Título do desafio.
+        description: Enunciado do desafio.
+        solution_hint: Dica de solução (opcional ao resolver).
+    """
+
+    id: str
+    title: str
+    description: str
+    solution_hint: str
+
+
+class ChallengeRunRequest(BaseModel):
+    """
+    Requisição para executar um desafio.
+
+    Attributes:
+        challenge_id: Identificador do desafio.
+        code: Código Python do aluno.
+        timeout_seconds: Tempo máximo de execução em segundos (opcional).
+    """
+
+    challenge_id: str
+    code: str
+    timeout_seconds: Optional[int] = None
+
+
 # --- Health Endpoint ---
 class HealthResponse(BaseModel):
     """

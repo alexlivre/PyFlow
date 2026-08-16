@@ -163,6 +163,16 @@
             </svg>
             AI Chat
           </button>
+          <button 
+            class="tab-btn"
+            :class="{ active: store.activeTab === 'challenges' }"
+            @click="store.activeTab = 'challenges'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+              <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="21" x2="21" y2="16"/><line x1="19" y1="15" x2="15" y2="19"/>
+            </svg>
+            Desafios
+          </button>
         </div>
 
         <!-- Tab Content -->
@@ -359,6 +369,100 @@
                   Send
                 </button>
               </form>
+            </div>
+          </div>
+
+          <!-- Challenges -->
+          <div v-else-if="store.activeTab === 'challenges'" class="flex flex-col h-full">
+            <div class="p-4 border-b border-border space-y-3">
+              <div class="flex gap-2">
+                <select v-model="store.activeChallengeId" class="select flex-1" title="Select a challenge">
+                  <option v-for="c in store.challenges" :key="c.id" :value="c.id">{{ c.title }}</option>
+                </select>
+                <button 
+                  class="btn btn-primary" 
+                  :disabled="store.isChallengeRunning || !store.activeChallengeId"
+                  @click="store.runChallenge()"
+                >
+                  <span v-if="store.isChallengeRunning" class="spinner w-4 h-4"></span>
+                  <template v-else>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    Run Challenge
+                  </template>
+                </button>
+              </div>
+
+              <div v-if="activeChallenge" class="diagnostic-card">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="font-semibold">{{ activeChallenge.title }}</h3>
+                  <span class="badge badge-primary text-xs">{{ store.challenges.length }} desafios</span>
+                </div>
+                <p class="text-secondary text-sm mt-2 whitespace-pre-wrap">{{ activeChallenge.description }}</p>
+                <button class="btn btn-ghost text-xs mt-3" @click="store.showChallengeHint = !store.showChallengeHint">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1">
+                    <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+                  </svg>
+                  {{ store.showChallengeHint ? 'Ocultar dica' : 'Mostrar dica' }}
+                </button>
+                <div v-if="store.showChallengeHint" class="code-block accent-border-l mt-3 animate-fade-in">
+                  <pre class="code-font text-sm"><code>{{ activeChallenge.solution_hint }}</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-auto p-5">
+              <div v-if="store.isChallengeRunning" class="empty-state">
+                <div class="spinner w-8 h-8"></div>
+                <h3 class="empty-state-title">Running Challenge...</h3>
+                <p class="empty-state-description">Executando os testes ocultos.</p>
+              </div>
+
+              <div v-else-if="store.challengeResult && store.challengeResult.error" class="diagnostic-card">
+                <span class="badge badge-error">Erro</span>
+                <p class="text-secondary text-sm mt-2">{{ store.challengeResult.error }}</p>
+              </div>
+
+              <div v-else-if="store.challengeResult" class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <h3 class="font-semibold">Resultado</h3>
+                  <span :class="store.challengeResult.passed_count === store.challengeResult.total_count ? 'badge badge-success' : 'badge badge-error'">
+                    {{ store.challengeResult.passed_count }}/{{ store.challengeResult.total_count }} testes
+                  </span>
+                </div>
+
+                <div v-for="t in store.challengeResult.tests" :key="t.name" class="diagnostic-card animate-fade-in">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium">{{ t.name }}</span>
+                    <span :class="t.passed ? 'badge badge-success' : 'badge badge-error'">{{ t.passed ? 'PASS' : 'FAIL' }}</span>
+                  </div>
+                  <div v-if="!t.passed" class="text-xs mt-3 space-y-1">
+                    <div class="flex gap-2">
+                      <span class="text-muted shrink-0">Esperado:</span>
+                      <code class="code-font text-error break-all">{{ t.expected }}</code>
+                    </div>
+                    <div class="flex gap-2">
+                      <span class="text-muted shrink-0">Obtido:</span>
+                      <code class="code-font break-all">{{ t.actual }}</code>
+                    </div>
+                    <div v-if="t.stdout" class="flex gap-2">
+                      <span class="text-muted shrink-0">Saída:</span>
+                      <code class="code-font break-all">{{ t.stdout }}</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="empty-state-icon">
+                  <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="21" x2="21" y2="16"/><line x1="19" y1="15" x2="15" y2="19"/>
+                </svg>
+                <h3 class="empty-state-title">Escolha um Desafio</h3>
+                <p class="empty-state-description">
+                  Selecione um desafio acima, escreva sua solução no editor e clique em <strong>Run Challenge</strong>.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -660,12 +764,14 @@ const fetchOpenRouterModels = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   store.loadFromStorage()
-  store.fetchToken()
+  await store.fetchToken()
 
   store.refreshHealth()
   healthTimer = setInterval(() => store.refreshHealth(), 10000)
+
+  store.fetchChallenges()
 
   // Add keyboard shortcut for running code
   window.addEventListener('keydown', handleGlobalKeydown)
@@ -678,6 +784,10 @@ onUnmounted(() => {
 
 const hasDiagnostics = computed(() => {
   return store.output && (store.output.diagnostics || store.output.ai_error_help)
+})
+
+const activeChallenge = computed(() => {
+  return store.challenges.find(c => c.id === store.activeChallengeId) || null
 })
 
 // Autosave editor code changes to localStorage
