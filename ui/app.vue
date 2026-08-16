@@ -570,16 +570,14 @@ const fetchOpenRouterModels = async () => {
   
   isLoadingModels.value = true
   try {
-    const response = await fetch('http://localhost:8000/models/openrouter', {
+    const response = await $fetch('/api/models/openrouter', {
       headers: {
-        'X-OpenRouter-API-Key': editingConfig.value.api_key
+        'X-OpenRouter-API-Key': editingConfig.value.api_key,
+        ...(store.apiToken ? { 'X-PyFlow-Token': store.apiToken } : {})
       }
     })
     
-    if (!response.ok) throw new Error('Failed to fetch models')
-    
-    const data = await response.json()
-    availableModels.value = data.data
+    availableModels.value = response.data
   } catch (error) {
     console.error('Error fetching models:', error)
     // You might want to show a toast notification here

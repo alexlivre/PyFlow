@@ -24,7 +24,6 @@ services:
       - "3000:3000"
     environment:
       - NUXT_PUBLIC_API_BASE=http://pyflow-api:8000
-      - PYFLOW_API_TOKEN=${PYFLOW_API_TOKEN:-pyflow-dev-token-change-me}
     volumes:
       - ./ui:/app
       - /app/node_modules
