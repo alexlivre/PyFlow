@@ -134,9 +134,8 @@ def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = Fal
         if ctx_lines:
             context = "\n".join(ctx_lines)
 
-    # Sanitize traceback if requested (we allow caller to handle strictly raw,
-    # but here we populate parts).
-    # The requirement says "raw_traceback" is optional.
+    # raw_traceback stays unsanitized on purpose when requested;
+    # display stderr is sanitized separately by the route.
 
     return Diagnostics(
         error_type=error_type,
