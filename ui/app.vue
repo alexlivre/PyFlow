@@ -98,12 +98,15 @@
               </svg>
               Clear
             </button>
-            <button class="btn btn-ghost text-xs" @click="loadExample" title="Load example">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-              </svg>
-              Example
-            </button>
+            <select
+              v-model="selectedExample"
+              class="select text-xs example-select"
+              title="Load an example"
+              @change="onExampleSelect"
+            >
+              <option value="" disabled selected>Examples…</option>
+              <option v-for="ex in examples" :key="ex.title" :value="ex.title" :title="ex.description">{{ ex.title }}</option>
+            </select>
           </div>
         </div>
         
@@ -511,6 +514,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { usePyFlowStore } from '~/stores/pyflow'
+import { examples } from '~/data/examples'
 import { Codemirror } from 'vue-codemirror'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -523,6 +527,7 @@ const chatInput = ref('')
 const editingConfig = ref(null)
 const isNewConfig = ref(false)
 const chatContainer = ref(null)
+const selectedExample = ref('')
 const availableModels = ref([])
 const isLoadingModels = ref(false)
 const modelSearch = ref('')
@@ -711,22 +716,13 @@ const clearCode = () => {
   store.code = '# Write your Python code here...\n'
 }
 
-const loadExample = () => {
-  store.code = `# PyFlow Example - Hello World
-def greet(name):
-    """Returns a greeting message."""
-    return f"Hello, {name}! Welcome to PyFlow."
-
-# Main execution
-if __name__ == "__main__":
-    names = ["Alice", "Bob", "Charlie"]
-    
-    for name in names:
-        message = greet(name)
-        print(message)
-    
-    print("\\n✨ Code executed successfully!")
-`
+const onExampleSelect = () => {
+  const example = examples.find((ex) => ex.title === selectedExample.value)
+  if (example) {
+    store.code = example.code
+    store.activeTab = 'console'
+  }
+  selectedExample.value = ''
 }
 </script>
 
@@ -866,6 +862,14 @@ if __name__ == "__main__":
 /* Elevated background */
 .bg-elevated {
   background: var(--bg-elevated);
+}
+
+/* Compact example dropdown in the editor header */
+.example-select {
+  width: 140px;
+  padding: 0.375rem 2rem 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  background: var(--bg-surface);
 }
 
 /* Hide utilities */
