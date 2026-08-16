@@ -44,7 +44,11 @@ app = FastAPI(
 @app.middleware("http")
 async def reject_non_local_hosts(request, call_next):
     raw_host = request.headers.get("host", "")
-    host = (urlsplit(f"//{raw_host}").hostname or "").lower()
+    try:
+        host = (urlsplit(f"//{raw_host}").hostname or "").lower()
+    except ValueError:
+        # Malformed bracketed host (e.g. "[::1"): treat as non-local.
+        return JSONResponse(status_code=403, content={"detail": "Non-local host not allowed"})
     if host and not any(host == suffix or host.endswith(f".{suffix}") for suffix in ALLOWED_HOST_SUFFIXES):
         return JSONResponse(status_code=403, content={"detail": "Non-local host not allowed"})
     return await call_next(request)

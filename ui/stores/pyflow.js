@@ -174,7 +174,8 @@ export const usePyFlowStore = defineStore('pyflow', {
                             base_url: config.base_url || undefined
                         } : undefined,
                         ai_explain_on_error: true,
-                        include_raw_traceback: true
+                        include_raw_traceback: true,
+                        rich_output: true
                     })
                 })
                 if (!res.ok) throw new Error('HTTP ' + res.status)

@@ -36,6 +36,12 @@ def test_token_validation_is_timing_safe():
     assert validate_token(None) is False
 
 
+def test_token_validation_rejects_non_ascii_without_error():
+    from pyflow.core.security import validate_token
+    assert validate_token("ç~´") is False
+    assert validate_token("tökèn") is False
+
+
 def test_connection_file_contains_token(tmp_path, monkeypatch):
     from pyflow.core import connection
 
@@ -133,6 +139,18 @@ def test_host_header_spoofing_is_rejected():
         headers={
             "X-PyFlow-Token": get_or_create_token(),
             "Host": "evil.example.com",
+        },
+    )
+    assert resp.status_code == 403
+
+
+def test_malformed_bracketed_host_is_rejected_without_error():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Host": "[::1",
         },
     )
     assert resp.status_code == 403

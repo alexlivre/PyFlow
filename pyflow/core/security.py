@@ -19,9 +19,13 @@ def get_or_create_token() -> str:
     if settings.PYFLOW_API_TOKEN:
         return settings.PYFLOW_API_TOKEN
     if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if token:
-            return token
+        try:
+            token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        except OSError as e:
+            logger.error(f"Failed to read token file: {e}")
+        else:
+            if token:
+                return token
     token = secrets.token_urlsafe(32)
     CONNECTION_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -39,4 +43,9 @@ def validate_token(token: str | None) -> bool:
     """Compare the provided token against the local token in constant time."""
     if not token:
         return False
-    return hmac.compare_digest(token, get_or_create_token())
+    try:
+        return hmac.compare_digest(token, get_or_create_token())
+    except TypeError:
+        # Non-ASCII input (e.g. latin-1 header decoding) is not a valid
+        # token; reject instead of crashing the protected route.
+        return False

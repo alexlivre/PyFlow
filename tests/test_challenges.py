@@ -73,6 +73,39 @@ async def test_unknown_challenge_raises():
         await run_challenge("print(1)", "does_not_exist", timeout_seconds=10)
 
 
+async def test_challenge_id_traversal_is_rejected():
+    for evil in ("../secret", "..\\secret", "../../../etc/passwd", "..%2f..%2fpasswd"):
+        with pytest.raises(ChallengeNotFoundError):
+            await run_challenge("print(1)", evil, timeout_seconds=10)
+
+
+async def test_student_cannot_forge_passing_marker_by_rebinding_print():
+    forged = (
+        "import sys\n"
+        "def fake_print(*args, **kwargs):\n"
+        '    sys.stdout.write(\'PYFLOW_TEST_RESULT::{"challenge_id": "hello_world", '
+        '"tests": [], "passed_count": 1, "total_count": 1}\')\n'
+        "print = fake_print\n"
+    )
+    result = await run_challenge(forged, "hello_world", timeout_seconds=10)
+
+    assert result.passed_count == 0
+    assert result.total_count == 1
+    assert result.tests[0].passed is False
+
+
+async def test_student_cannot_forge_marker_by_escaping_stdout_capture():
+    escaped = (
+        "import sys\n"
+        "sys.stdout = sys.__stdout__\n"
+        "print('Olá, PyFlow!')\n"
+    )
+    result = await run_challenge(escaped, "hello_world", timeout_seconds=10)
+
+    assert result.passed_count == 0
+    assert result.total_count == 1
+
+
 async def test_endpoint_run_challenge_success():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(

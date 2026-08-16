@@ -269,14 +269,17 @@ async def execute_code_stream(
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.exception("Internal execution error")
         await flush_emit()
+        # Never surface the server temp path in an internal error: route
+        # the message through the same sanitization as the normal branches.
+        sanitized_message = _sanitize_output(str(e), tmp_file)
         return RunResponse(
             status="error",
             stdout="",
-            stderr=f"Internal Server Error: {e}",
+            stderr=f"Internal Server Error: {sanitized_message}",
             exit_code=255,
             execution_time_ms=elapsed_ms,
             output_truncated=False,
-            diagnostics=Diagnostics(error_type="InternalError", message=str(e)),
+            diagnostics=Diagnostics(error_type="InternalError", message=sanitized_message),
             request_id=request_id
         )
         

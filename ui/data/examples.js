@@ -111,27 +111,29 @@ print(f"Balance: {acc.balance}")
 `,
   },
   {
-    title: 'Turtle Graphics',
-    description: 'Draw a colorful spiral with the turtle module.',
-    code: `# Simple turtle drawing: a colorful square spiral
-import turtle
+    title: 'ASCII Art Shapes',
+    description: 'Draw shapes with plain text — works headless, no graphics window needed.',
+    code: `# Text-based shape drawing (no GUI window required)
+def draw_square(size):
+    for _ in range(size):
+        print("* " * size)
 
-t = turtle.Turtle()
-t.speed(10)
+def draw_triangle(size):
+    for row in range(1, size + 1):
+        print("* " * row)
 
-colors = ["red", "orange", "yellow", "green", "blue", "purple"]
-for i in range(36):
-    t.color(colors[i % len(colors)])
-    t.forward(i * 3)
-    t.left(90)
+print("Square:")
+draw_square(5)
 
-turtle.done()
+print("Triangle:")
+draw_triangle(5)
 `,
   },
   {
     title: 'Matplotlib Plot',
-    description: 'Plot a sine wave with matplotlib (no numpy needed).',
+    description: 'Plot a sine wave with matplotlib (no numpy needed). The figure is returned as an inline image in the output.',
     code: `# Plot a sine wave with matplotlib
+# The figure is rendered inline in the output panel
 import math
 import matplotlib.pyplot as plt
 

@@ -7,15 +7,20 @@ on the marker line printed to stdout.
 
 Harness contract:
     - The harness prologue redirects stdout into an io.StringIO, then the
-      student code runs at module level (concatenated as-is, never
-      re-indented), then the harness epilogue restores stdout and compares
-      the captured output against each test's expected string.
-    - Tests with an optional 'harness' expression call a function from the
-      student code and compare str(return value) against 'expected'.
+      student code runs via exec() in its OWN globals dict (no access to
+      the harness namespace), then the harness epilogue restores stdout
+      and compares the captured output against each test's expected string.
+    - Tests with an optional 'harness' expression evaluate it against the
+      student's globals dict and compare str(return value) against
+      'expected'.
     - The harness prints the marker line "PYFLOW_TEST_RESULT::<json>" to the
       real stdout as the LAST line; the JSON payload carries the results.
     - If the student code raises (or the marker is missing or malformed), every
       test is marked failed with the execution error as 'actual'.
+
+Isolation: the student code shares no bindings with the harness, so it can
+neither see the captured StringIO nor rebind names (print, json, sys, ...)
+the harness relies on to forge a passing marker.
 """
 
 import io
@@ -46,7 +51,24 @@ _HARNESS_PROLOGUE = textwrap.dedent(
     __pyflow_orig_stdout = sys.stdout
     sys.stdout = __pyflow_captured
 
-    # ==== USER CODE ====
+    """
+)
+
+# The student code runs in its own globals dict: the harness names above
+# (and the builtin print/json/sys the epilogue relies on) are never visible
+# to it, so it cannot forge the result marker. The student's definitions
+# stay in their dict, which the harness later resolves through eval().
+_HARNESS_USER_EXEC = textwrap.dedent(
+    """\
+    # ==== USER CODE (isolated namespace) ====
+    __pyflow_user_code = {user_code}
+    __pyflow_user_globals = {{"__builtins__": __builtins__, "__name__": "__main__"}}
+    try:
+        __pyflow_filename = __file__
+    except NameError:
+        __pyflow_filename = "<user_code>"
+    exec(compile(__pyflow_user_code, __pyflow_filename, "exec"), __pyflow_user_globals)
+
     """
 )
 
@@ -86,7 +108,13 @@ class ChallengeNotFoundError(KeyError):
 
 
 def load_challenge(challenge_id: str) -> dict:
-    """Load a challenge definition by id from the challenges directory."""
+    """Load a challenge definition by id from the challenges directory.
+
+    Only ids from the published catalog resolve; anything else (including
+    path-traversal attempts such as "../secret") is rejected outright.
+    """
+    if challenge_id not in {info["id"] for info in list_challenge_infos()}:
+        raise ChallengeNotFoundError(challenge_id)
     path = CHALLENGES_DIR / f"{challenge_id}.json"
     if not path.is_file():
         raise ChallengeNotFoundError(challenge_id)
@@ -114,10 +142,10 @@ def _build_test_code(test: dict) -> str:
     name = json.dumps(test["name"], ensure_ascii=False)
     expected = json.dumps(test["expected"], ensure_ascii=False)
     if "harness" in test:
-        harness_expr = textwrap.dedent(test["harness"])
+        harness_expr = json.dumps(test["harness"], ensure_ascii=False)
         return (
             f"try:\n"
-            f"    __pyflow_actual = {harness_expr}\n"
+            f"    __pyflow_actual = eval({harness_expr}, __pyflow_user_globals)\n"
             f"    __pyflow_add_test({name}, str(__pyflow_actual) == {expected}, {expected}, str(__pyflow_actual))\n"
             f"except Exception as __pyflow_err:\n"
             f"    __pyflow_add_test({name}, False, {expected}, type(__pyflow_err).__name__ + ': ' + str(__pyflow_err))\n"
@@ -129,7 +157,11 @@ def _build_test_code(test: dict) -> str:
 
 def _build_script(user_code: str, challenge: dict) -> str:
     """Assemble the single script the engine will execute."""
-    parts = [_HARNESS_PROLOGUE, user_code, _HARNESS_EPILOGUE]
+    parts = [
+        _HARNESS_PROLOGUE,
+        _HARNESS_USER_EXEC.format(user_code=json.dumps(user_code)),
+        _HARNESS_EPILOGUE,
+    ]
     for test in challenge["tests"]:
         parts.append(_build_test_code(test))
     parts.append(_MARKER_PRINT.format(challenge_id=json.dumps(challenge["id"])))

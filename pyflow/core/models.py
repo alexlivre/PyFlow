@@ -173,7 +173,6 @@ class ChatRequest(BaseModel):
     user_message: str
     history: List[ChatMessage] = []
     ai_config: Optional[AIConfig] = None
-    mode: Optional[Literal["tutor", "hint"]] = None
 
 
 class ChatResponse(BaseModel):

@@ -99,6 +99,7 @@ async def event_source(req: RunRequest):
                         max_output_chars=max_output,
                         emit=emit,
                         include_raw_traceback=req.include_raw_traceback,
+                        rich_output=req.rich_output,
                     )
                     # Same path sanitization contract as /run: strip any
                     # remaining server paths from the displayed stderr.
