@@ -115,6 +115,7 @@
               :indent-with-tab="true"
               :tab-size="4"
               :extensions="extensions"
+              @ready="onEditorReady"
               @keydown="handleEditorKeydown"
             />
           </ClientOnly>
@@ -510,6 +511,8 @@ import { usePyFlowStore } from '~/stores/pyflow'
 import { Codemirror } from 'vue-codemirror'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { EditorView, Decoration } from '@codemirror/view'
+import { StateEffect, StateField } from '@codemirror/state'
 
 const store = usePyFlowStore()
 const chatInput = ref('')
@@ -553,7 +556,39 @@ const filteredAvailableModels = computed(() => {
   return result
 })
 
-const extensions = [python(), oneDark]
+const editorView = ref(null)
+const errorLine = computed(() => store.output?.diagnostics?.line ?? null)
+
+const onEditorReady = (view) => {
+  editorView.value = view
+}
+
+const setErrorLine = StateEffect.define()
+const errorLineField = StateField.define({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    deco = deco.map(tr.changes)
+    for (const e of tr.effects) {
+      if (e.is(setErrorLine)) {
+        deco = Decoration.none
+        if (e.value != null) {
+          const mark = Decoration.line({
+            attributes: { style: 'background: rgba(239,68,68,0.12); border-left: 3px solid #ef4444;' },
+          })
+          deco = deco.add(tr.startState.doc, tr.startState.doc.line(e.value), mark)
+        }
+      }
+    }
+    return deco
+  },
+})
+
+watch(errorLine, (line) => {
+  const view = editorView.value
+  if (view) view.dispatch({ effects: setErrorLine.of(line) })
+})
+
+const extensions = [python(), oneDark, errorLineField]
 
 // Function to render markdown
 const renderMarkdown = (text) => {
