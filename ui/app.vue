@@ -41,6 +41,24 @@
           </select>
         </div>
 
+        <!-- Execution Mode Selector -->
+        <div class="relative flex items-center gap-2">
+          <select
+            v-model="store.executionMode"
+            class="select"
+            style="width: 150px;"
+            :title="store.executionMode === 'browser'
+              ? 'Execução no navegador (Pyodide): segura e offline, sem libs nativas'
+              : 'Execução no servidor: suporta libs nativas'"
+          >
+            <option value="server">Servidor</option>
+            <option value="browser">Navegador</option>
+          </select>
+          <span v-if="store.executionMode === 'browser'" class="text-xs text-muted whitespace-nowrap">
+            seguro/offline
+          </span>
+        </div>
+
         <!-- Gamification Stats -->
         <div class="flex items-center gap-2">
           <span class="badge badge-primary" title="Experience points">⚡ {{ store.xp }} XP</span>
@@ -67,7 +85,7 @@
         <button 
           class="btn btn-primary run-button" 
           :disabled="store.isRunning" 
-          @click="store.runCodeStreaming"
+          @click="store.runCode"
           style="min-width: 120px;"
         >
           <template v-if="!store.isRunning">
@@ -823,7 +841,7 @@ const handleGlobalKeydown = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
     if (!store.isRunning) {
-      store.runCodeStreaming()
+      store.runCode()
     }
   }
 }

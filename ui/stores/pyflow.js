@@ -8,6 +8,7 @@ export const usePyFlowStore = defineStore('pyflow', {
         isRunning: false,
         consoleStream: '',
         streamBuffer: '',
+        executionMode: 'server', // 'server' | 'browser'
 
         // Chat
         chatHistory: [],
@@ -111,53 +112,41 @@ export const usePyFlowStore = defineStore('pyflow', {
         },
 
         async runCode() {
-            this.saveCodeToStorage()
+            if (this.executionMode === 'browser') return this.runCodeBrowser()
+            return this.runCodeStreaming()
+        },
+
+        async runCodeBrowser() {
             this.isRunning = true
             this.output = null
             this.activeTab = 'console'
-
-            const config = this.configs.find(c => c.id === this.activeConfigId)
-            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
-
             try {
-                const res = await $fetch('/api/run', {
-                    method: 'POST',
-                    headers,
-                    body: {
-                        code: this.code,
-                        rich_output: true,
-                        ai_config: config ? {
-                            provider: config.provider,
-                            model_id: config.model_id,
-                            api_key: config.api_key || undefined,
-                            base_url: config.base_url || undefined
-                        } : undefined,
-                        ai_explain_on_error: true,
-                        include_raw_traceback: true
-                    }
-                })
-                this.output = res
-                this.trackRun(res.status === 'success')
-                this.syncHintTarget()
-
-                // Auto-switch to diagnostics if error and diagnostics exist
-                if (res.status === 'error' || res.diagnostics) {
-                    // Only switch if there is something interesting to show besides raw stderr
-                    if (res.diagnostics || res.ai_error_help) {
-                        this.activeTab = 'diagnostics'
+                if (!this.pyodide) {
+                    const { loadPyodide } = await import('pyodide')
+                    this.pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/' })
+                }
+                let out = ''
+                const err = []
+                this.pyodide.setStdout({ batched: (s) => { out += s + '\n' } })
+                this.pyodide.setStderr({ batched: (s) => { err.push(s) } })
+                try {
+                    await this.pyodide.runPythonAsync(this.code)
+                    this.output = { status: 'success', stdout: out, stderr: err.join('\n'), execution_time_ms: 0 }
+                } catch (e) {
+                    this.output = {
+                        status: 'error',
+                        stdout: out,
+                        stderr: err.join('\n') + '\n' + (e.message || String(e)),
+                        execution_time_ms: 0,
+                        diagnostics: { error_type: e.name || 'Error', message: e.message || String(e) },
                     }
                 }
+                this.trackRun(this.output.status === 'success')
             } catch (err) {
-                this.output = {
-                    status: 'error',
-                    stderr: 'Falha na comunicação com o servidor.\n' + err.message,
-                    stdout: '',
-                    execution_time_ms: 0
-                }
+                this.output = { status: 'error', stdout: '', stderr: 'Falha ao carregar Pyodide: ' + err.message, execution_time_ms: 0 }
                 this.trackRun(false)
             } finally {
                 this.isRunning = false
-                this.syncHintTarget()
             }
         },
 
