@@ -560,13 +560,16 @@ Por favor, forneça o diagnóstico JSON.
 """
 
         if diagnostics:
-            user_content += f"""
+            if level > 1:
+                user_content += f"""
 Diagnóstico do erro:
 Tipo: {diagnostics.error_type}
 Mensagem: {diagnostics.message}
 Linha: {diagnostics.line}
 Contexto: {diagnostics.context or "N/A"}
 """
+            else:
+                user_content += "\nAlgo não está funcionando como esperado no código acima.\n"
 
         messages = [
             {"role": "system", "content": system_prompt},

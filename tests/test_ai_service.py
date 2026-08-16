@@ -174,3 +174,30 @@ def test_socratic_hint_level3_includes_diagnostics_line():
     user_content = mock.await_args.kwargs["messages"][1]["content"]
     assert "NameError" in user_content
     assert "Linha" in user_content
+
+
+def test_socratic_hint_level1_omits_diagnostics():
+    cfg = AIConfig(provider="openai", model_id="gpt-4o", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "O que você acha que está errado?"
+    mock = AsyncMock(return_value=response)
+    diag = Diagnostics(
+        error_type="ZeroDivisionError",
+        message="division by zero",
+        line=1,
+    )
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService.socratic_hint(
+                code="x = 1/0",
+                diagnostics=diag,
+                level=1,
+                config=cfg,
+            )
+        )
+    assert result == "O que você acha que está errado?"
+    user_content = mock.await_args.kwargs["messages"][1]["content"]
+    assert "ZeroDivisionError" not in user_content
+    assert "division by zero" not in user_content
+    assert "Linha" not in user_content
+    assert "não está funcionando como esperado" in user_content
