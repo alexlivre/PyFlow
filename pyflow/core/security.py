@@ -3,6 +3,8 @@
 import hmac
 import secrets
 
+from loguru import logger
+
 from pyflow.core.config import settings, CONNECTION_DIR
 
 TOKEN_FILE = CONNECTION_DIR / "token"
@@ -22,7 +24,10 @@ def get_or_create_token() -> str:
             return token
     token = secrets.token_urlsafe(32)
     CONNECTION_DIR.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(token, encoding="utf-8")
+    try:
+        TOKEN_FILE.write_text(token, encoding="utf-8")
+    except OSError as e:
+        logger.error(f"Failed to persist token: {e}")
     try:
         TOKEN_FILE.chmod(0o600)
     except OSError:

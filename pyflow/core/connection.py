@@ -66,6 +66,10 @@ def write_connection_file(host: str, port: int, pid: int):
     try:
         with open(CONNECTION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+        try:
+            CONNECTION_FILE.chmod(0o600)
+        except OSError:
+            pass
         logger.info(f"Connection file written to {CONNECTION_FILE}")
     except Exception as e:
         logger.error(f"Failed to write connection file: {e}")

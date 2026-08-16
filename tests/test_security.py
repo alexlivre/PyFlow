@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from pyflow.main import app
@@ -28,6 +30,17 @@ def test_health_is_public():
 
 def test_token_validation_is_timing_safe():
     from pyflow.core.security import validate_token
+    assert validate_token(get_or_create_token()) is True
     assert validate_token("wrong-token") is False
     assert validate_token("") is False
     assert validate_token(None) is False
+
+
+def test_connection_file_contains_token(tmp_path, monkeypatch):
+    from pyflow.core import connection
+
+    monkeypatch.setattr(connection, "CONNECTION_FILE", tmp_path / "connection.json")
+    monkeypatch.setattr(connection, "CONNECTION_DIR", tmp_path)
+    connection.write_connection_file("127.0.0.1", 8000, 123)
+    data = json.loads((tmp_path / "connection.json").read_text(encoding="utf-8"))
+    assert data["token"] == get_or_create_token()
