@@ -34,15 +34,16 @@ router = APIRouter()
 @router.post("/run/stream", dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def run_stream_endpoint(req: RunRequest) -> StreamingResponse:
     """Execute Python code, streaming stdout/stderr chunks as NDJSON events."""
-    if _run_semaphore.locked():
+    # Atomic non-blocking acquire: rejects the extra request with 429 instead
+    # of queueing behind the lock (no TOCTOU race, no hang on bursts).
+    if not _run_semaphore.acquire_nowait():
         raise HTTPException(
             status_code=429,
             detail="Too many concurrent executions",
             headers={"Retry-After": "1"},
         )
-    # The semaphore is acquired here, before the response starts, and released
-    # in the generator's finally block (which also runs on client disconnect).
-    await _run_semaphore.acquire()
+    # The slot is released in the generator's finally block, which also runs
+    # on client disconnect and on early errors below.
     try:
         return StreamingResponse(event_source(req), media_type="application/x-ndjson")
     except Exception:

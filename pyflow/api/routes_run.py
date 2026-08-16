@@ -14,8 +14,6 @@ O endpoint suporta:
 A execução ocorre em um subprocesso isolado para segurança.
 """
 
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException
 from pyflow.core.models import RunRequest, RunResponse
 from pyflow.core.config import settings
@@ -23,10 +21,11 @@ from pyflow.core.engine import execute_code
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
 from pyflow.api.deps import require_local_origin, require_token
+from pyflow.core.concurrency import AsyncSemaphore
 
 router = APIRouter()
 
-_run_semaphore = asyncio.Semaphore(settings.PYFLOW_MAX_CONCURRENT_RUNS)
+_run_semaphore = AsyncSemaphore(settings.PYFLOW_MAX_CONCURRENT_RUNS)
 
 
 @router.post("/run", response_model=RunResponse, dependencies=[Depends(require_token), Depends(require_local_origin)])
@@ -49,14 +48,15 @@ async def run_code_endpoint(req: RunRequest):
         - Se ai_explain_on_error=True e ocorrer erro, a IA é consultada.
         - Paths no traceback são sanitizados por segurança.
     """
-    if _run_semaphore.locked():
+    # Atomic non-blocking acquire: rejects the extra request with 429 instead
+    # of queueing behind the lock (no TOCTOU race, no hang on bursts).
+    if not _run_semaphore.acquire_nowait():
         raise HTTPException(
             status_code=429,
             detail="Too many concurrent executions",
             headers={"Retry-After": "1"},
         )
-
-    async with _run_semaphore:
+    try:
         request_id = generate_request_id()
 
         # Defaults
@@ -118,3 +118,5 @@ async def run_code_endpoint(req: RunRequest):
                 pass
 
         return result
+    finally:
+        _run_semaphore.release()
