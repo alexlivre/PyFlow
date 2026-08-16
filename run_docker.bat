@@ -1,6 +1,6 @@
 @echo off
 echo Stopping any existing PyFlow containers...
-docker-compose down
+docker compose down
 
 echo.
 echo Starting PyFlow via Docker Compose (Dev Mode)...
@@ -15,7 +15,7 @@ echo   Access the UI at: http://localhost:3000
 echo =========================================================
 echo.
 echo Building and starting containers...
-docker-compose up --build
+docker compose up --build
 
 echo.
 pause

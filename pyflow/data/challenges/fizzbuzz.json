@@ -1,0 +1,12 @@
+{
+  "id": "fizzbuzz",
+  "title": "FizzBuzz",
+  "description": "Escreva uma função fizzbuzz(n) que retorna 'Fizz' se n é múltiplo de 3, 'Buzz' se é múltiplo de 5, 'FizzBuzz' se é múltiplo de ambos, e o número como string caso contrário.",
+  "solution_hint": "def fizzbuzz(n):\n    if n % 15 == 0:\n        return 'FizzBuzz'\n    if n % 3 == 0:\n        return 'Fizz'\n    if n % 5 == 0:\n        return 'Buzz'\n    return str(n)",
+  "tests": [
+    { "name": "fizzbuzz(3) == 'Fizz'", "harness": "fizzbuzz(3)", "expected": "Fizz" },
+    { "name": "fizzbuzz(5) == 'Buzz'", "harness": "fizzbuzz(5)", "expected": "Buzz" },
+    { "name": "fizzbuzz(15) == 'FizzBuzz'", "harness": "fizzbuzz(15)", "expected": "FizzBuzz" },
+    { "name": "fizzbuzz(7) == '7'", "harness": "fizzbuzz(7)", "expected": "7" }
+  ]
+}

@@ -23,9 +23,16 @@ import os
 from pathlib import Path
 from loguru import logger
 
-from pyflow.core.config import settings
+from pyflow.core.config import settings, CONNECTION_DIR
 from pyflow.utils.net import find_available_port
-from pyflow.core.connection import write_connection_file, CONNECTION_DIR
+from pyflow.core.connection import write_connection_file
+
+# Ensure the console can print the CLI's emoji output on legacy encodings
+# (e.g. Windows cp1252 terminals) without a UnicodeEncodeError.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, ValueError):
+    pass
 
 app = typer.Typer()
 

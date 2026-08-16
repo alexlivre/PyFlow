@@ -23,9 +23,12 @@
           </div>
         </div>
         <div class="flex items-center gap-2 ml-4">
-          <span class="badge badge-primary">
-            <span class="status-dot status-dot-success mr-2"></span>
-            Connected
+          <span class="badge" :class="store.apiOnline === false ? 'badge-error' : 'badge-primary'">
+            <span
+              class="status-dot mr-2"
+              :class="store.apiOnline === true ? 'status-dot-success' : store.apiOnline === false ? 'status-dot-error' : 'status-dot-muted'"
+            ></span>
+            {{ store.apiOnline === true ? 'Connected' : store.apiOnline === false ? 'Offline' : 'Connecting…' }}
           </span>
         </div>
       </div>
@@ -36,6 +39,30 @@
           <select v-model="store.activeConfigId" class="select" style="width: 200px;">
             <option v-for="c in store.configs" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
+        </div>
+
+        <!-- Execution Mode Selector -->
+        <div class="relative flex items-center gap-2">
+          <select
+            v-model="store.executionMode"
+            class="select"
+            style="width: 150px;"
+            :title="store.executionMode === 'browser'
+              ? 'Execução no navegador (Pyodide): segura e offline, sem libs nativas'
+              : 'Execução no servidor: suporta libs nativas'"
+          >
+            <option value="server">Servidor</option>
+            <option value="browser">Navegador</option>
+          </select>
+          <span v-if="store.executionMode === 'browser'" class="text-xs text-muted whitespace-nowrap">
+            seguro/offline
+          </span>
+        </div>
+
+        <!-- Gamification Stats -->
+        <div class="flex items-center gap-2">
+          <span class="badge badge-primary" title="Experience points">⚡ {{ store.xp }} XP</span>
+          <span v-if="store.streak > 0" class="badge badge-warning" title="Consecutive days streak">🔥 {{ store.streak }} dias</span>
         </div>
         
         <!-- Settings Button -->
@@ -95,12 +122,15 @@
               </svg>
               Clear
             </button>
-            <button class="btn btn-ghost text-xs" @click="loadExample" title="Load example">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-              </svg>
-              Example
-            </button>
+            <select
+              v-model="selectedExample"
+              class="select text-xs example-select"
+              title="Load an example"
+              @change="onExampleSelect"
+            >
+              <option value="" disabled selected>Examples…</option>
+              <option v-for="ex in examples" :key="ex.title" :value="ex.title" :title="ex.description">{{ ex.title }}</option>
+            </select>
           </div>
         </div>
         
@@ -115,6 +145,7 @@
               :indent-with-tab="true"
               :tab-size="4"
               :extensions="extensions"
+              @ready="onEditorReady"
               @keydown="handleEditorKeydown"
             />
           </ClientOnly>
@@ -156,16 +187,42 @@
             </svg>
             AI Chat
           </button>
+          <button 
+            class="tab-btn"
+            :class="{ active: store.activeTab === 'challenges' }"
+            @click="store.activeTab = 'challenges'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+              <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="21" x2="21" y2="16"/><line x1="19" y1="15" x2="15" y2="19"/>
+            </svg>
+            Desafios
+          </button>
         </div>
 
         <!-- Tab Content -->
         <div class="flex-1 overflow-hidden relative">
           <!-- Console Output -->
           <div v-if="store.activeTab === 'console'" class="h-full flex flex-col">
-            <div v-if="store.output" class="flex-1 overflow-auto p-5">
+            <!-- Live stream while running -->
+            <div v-if="store.isRunning" class="flex-1 overflow-auto p-5">
+              <div class="console-output">
+                <pre class="console-stdout whitespace-pre-wrap break-words m-0">{{ store.consoleStream }}</pre>
+              </div>
+            </div>
+            <div v-else-if="store.output" class="flex-1 overflow-auto p-5">
               <div class="console-output">
                 <pre v-if="store.output.stdout" class="console-stdout whitespace-pre-wrap break-words m-0 mb-4">{{ store.output.stdout }}</pre>
                 <pre v-if="store.output.stderr" class="console-stderr whitespace-pre-wrap break-words m-0">{{ store.output.stderr }}</pre>
+                <div v-if="store.output.images && store.output.images.length" class="mt-4 space-y-4">
+                  <img
+                    v-for="(img, idx) in store.output.images"
+                    :key="idx"
+                    :src="'data:image/png;base64,' + img"
+                    alt="Matplotlib figure"
+                    class="rounded-lg border border-border"
+                    style="max-width: 100%; height: auto"
+                  />
+                </div>
               </div>
               
               <!-- Execution Stats -->
@@ -244,6 +301,28 @@
                     Apply Fix
                   </button>
                 </div>
+              </div>
+
+              <!-- Socratic Hint Card -->
+              <div class="ai-suggestion-card animate-slide-up">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                  <span class="badge badge-primary badge-glow">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1">
+                      <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+                    </svg>
+                    Tutor Socrático
+                  </span>
+                  <button class="btn btn-secondary text-xs" :disabled="store.isHinting" @click="askHint">
+                    <span v-if="store.isHinting" class="spinner w-4 h-4"></span>
+                    <template v-else>
+                      {{ store.hintLevel === 0 ? 'Dica' : 'Dica (Nível ' + Math.min(3, store.hintLevel + 1) + ')' }}
+                    </template>
+                  </button>
+                </div>
+                <p class="text-secondary text-sm mb-2">
+                  Receba orientação progressiva em vez da solução pronta.
+                </p>
+                <div v-if="store.hintText" class="markdown-content" v-html="renderMarkdown(store.hintText)"></div>
               </div>
             </div>
             
@@ -324,6 +403,102 @@
                   Send
                 </button>
               </form>
+            </div>
+          </div>
+
+          <!-- Challenges -->
+          <div v-else-if="store.activeTab === 'challenges'" class="flex flex-col h-full">
+            <div class="p-4 border-b border-border space-y-3">
+              <div class="flex gap-2">
+                <select v-model="store.activeChallengeId" class="select flex-1" title="Select a challenge">
+                  <option v-for="c in store.challenges" :key="c.id" :value="c.id">{{ c.title }}</option>
+                </select>
+                <button 
+                  class="btn btn-primary" 
+                  :disabled="store.isChallengeRunning || !store.activeChallengeId"
+                  @click="store.runChallenge()"
+                >
+                  <span v-if="store.isChallengeRunning" class="spinner w-4 h-4"></span>
+                  <template v-else>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    Run Challenge
+                  </template>
+                </button>
+              </div>
+
+              <p v-if="store.challengesError" class="text-error text-xs">{{ store.challengesError }}</p>
+
+              <div v-if="activeChallenge" class="diagnostic-card">
+                <div class="flex items-center justify-between gap-2">
+                  <h3 class="font-semibold">{{ activeChallenge.title }}</h3>
+                  <span class="badge badge-primary text-xs">{{ store.challenges.length }} desafios</span>
+                </div>
+                <p class="text-secondary text-sm mt-2 whitespace-pre-wrap">{{ activeChallenge.description }}</p>
+                <button class="btn btn-ghost text-xs mt-3" @click="store.showChallengeHint = !store.showChallengeHint">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1">
+                    <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+                  </svg>
+                  {{ store.showChallengeHint ? 'Ocultar dica' : 'Mostrar dica' }}
+                </button>
+                <div v-if="store.showChallengeHint" class="code-block accent-border-l mt-3 animate-fade-in">
+                  <pre class="code-font text-sm"><code>{{ activeChallenge.solution_hint }}</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-auto p-5">
+              <div v-if="store.isChallengeRunning" class="empty-state">
+                <div class="spinner w-8 h-8"></div>
+                <h3 class="empty-state-title">Running Challenge...</h3>
+                <p class="empty-state-description">Executando os testes ocultos.</p>
+              </div>
+
+              <div v-else-if="store.challengeResult && store.challengeResult.error" class="diagnostic-card">
+                <span class="badge badge-error">Erro</span>
+                <p class="text-secondary text-sm mt-2">{{ store.challengeResult.error }}</p>
+              </div>
+
+              <div v-else-if="store.challengeResult" class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <h3 class="font-semibold">Resultado</h3>
+                  <span :class="store.challengeResult.passed_count === store.challengeResult.total_count ? 'badge badge-success' : 'badge badge-error'">
+                    {{ store.challengeResult.passed_count }}/{{ store.challengeResult.total_count }} testes
+                  </span>
+                </div>
+
+                <div v-for="t in store.challengeResult.tests" :key="t.name" class="diagnostic-card animate-fade-in">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium">{{ t.name }}</span>
+                    <span :class="t.passed ? 'badge badge-success' : 'badge badge-error'">{{ t.passed ? 'PASS' : 'FAIL' }}</span>
+                  </div>
+                  <div v-if="!t.passed" class="text-xs mt-3 space-y-1">
+                    <div class="flex gap-2">
+                      <span class="text-muted shrink-0">Esperado:</span>
+                      <code class="code-font text-error break-all">{{ t.expected }}</code>
+                    </div>
+                    <div class="flex gap-2">
+                      <span class="text-muted shrink-0">Obtido:</span>
+                      <code class="code-font break-all">{{ t.actual }}</code>
+                    </div>
+                    <div v-if="t.stdout" class="flex gap-2">
+                      <span class="text-muted shrink-0">Saída:</span>
+                      <code class="code-font break-all">{{ t.stdout }}</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="empty-state-icon">
+                  <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" y1="19" x2="19" y2="13"/><line x1="16" y1="21" x2="21" y2="16"/><line x1="19" y1="15" x2="15" y2="19"/>
+                </svg>
+                <h3 class="empty-state-title">Escolha um Desafio</h3>
+                <p class="empty-state-description">
+                  Selecione um desafio acima, escreva sua solução no editor e clique em <strong>Run Challenge</strong>.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -414,9 +589,15 @@
                       <option value="deepseek">DeepSeek</option>
                       <option value="openrouter">OpenRouter</option>
                       <option value="ollama">Ollama (Local)</option>
+                      <option value="minimax">MiniMax</option>
+                      <option value="opencode">OpenCode Zen</option>
+                      <option value="opencode-go">OpenCode Go</option>
                     </select>
                     <p v-if="editingConfig.provider === 'openrouter'" class="text-xs text-muted mt-1">
                       OpenRouter: Use model IDs like "openai/gpt-4o" or "anthropic/claude-3.5-sonnet"
+                    </p>
+                    <p v-if="editingConfig.provider === 'opencode' || editingConfig.provider === 'opencode-go'" class="text-xs text-muted mt-1">
+                      OpenCode: use ids like "deepseek-v4-flash", "gpt-5.6-luna", "minimax-m3"
                     </p>
                   </div>
                     <div class="form-group">
@@ -458,7 +639,7 @@
                             v-else
                             v-model="editingConfig.model_id" 
                             class="input w-full" 
-                            :placeholder="editingConfig.provider === 'openrouter' ? 'e.g., openai/gpt-4o' : 'e.g., gpt-5-nano'" 
+                            :placeholder="editingConfig.provider === 'openrouter' ? 'e.g., openai/gpt-4o' : (editingConfig.provider === 'minimax' ? 'e.g., MiniMax-M3' : 'e.g., gpt-5-nano')" 
                         />
                         </div>
                         
@@ -505,17 +686,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { usePyFlowStore } from '~/stores/pyflow'
+import { examples } from '~/data/examples'
 import { Codemirror } from 'vue-codemirror'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { Decoration } from '@codemirror/view'
+import { StateEffect, StateField } from '@codemirror/state'
 
 const store = usePyFlowStore()
+let healthTimer = null
 const chatInput = ref('')
 const editingConfig = ref(null)
 const isNewConfig = ref(false)
 const chatContainer = ref(null)
+const selectedExample = ref('')
 const availableModels = ref([])
 const isLoadingModels = ref(false)
 const modelSearch = ref('')
@@ -553,7 +739,40 @@ const filteredAvailableModels = computed(() => {
   return result
 })
 
-const extensions = [python(), oneDark]
+const editorView = ref(null)
+const errorLine = computed(() => store.output?.diagnostics?.line ?? null)
+
+const onEditorReady = (view) => {
+  editorView.value = view
+}
+
+const setErrorLine = StateEffect.define()
+const errorLineField = StateField.define({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    deco = deco.map(tr.changes)
+    for (const e of tr.effects) {
+      if (e.is(setErrorLine)) {
+        deco = Decoration.none
+        if (e.value != null) {
+          const mark = Decoration.line({
+            attributes: { style: 'background: rgba(239,68,68,0.12); border-left: 3px solid #ef4444;' },
+          })
+          const lineNo = Math.min(e.value, tr.startState.doc.lines)
+          deco = deco.add(tr.startState.doc, tr.startState.doc.line(lineNo), mark)
+        }
+      }
+    }
+    return deco
+  },
+})
+
+watch(errorLine, (line) => {
+  const view = editorView.value
+  if (view) view.dispatch({ effects: setErrorLine.of(line) })
+})
+
+const extensions = [python(), oneDark, errorLineField]
 
 // Function to render markdown
 const renderMarkdown = (text) => {
@@ -570,16 +789,14 @@ const fetchOpenRouterModels = async () => {
   
   isLoadingModels.value = true
   try {
-    const response = await fetch('http://localhost:8000/models/openrouter', {
+    const response = await $fetch('/api/models/openrouter', {
       headers: {
-        'X-OpenRouter-API-Key': editingConfig.value.api_key
+        'X-OpenRouter-API-Key': editingConfig.value.api_key,
+        ...(store.apiToken ? { 'X-PyFlow-Token': store.apiToken } : {})
       }
     })
     
-    if (!response.ok) throw new Error('Failed to fetch models')
-    
-    const data = await response.json()
-    availableModels.value = data.data
+    availableModels.value = response.data
   } catch (error) {
     console.error('Error fetching models:', error)
     // You might want to show a toast notification here
@@ -589,16 +806,34 @@ const fetchOpenRouterModels = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   store.loadFromStorage()
-  
+  await store.fetchToken()
+
+  store.refreshHealth()
+  healthTimer = setInterval(() => store.refreshHealth(), 10000)
+
+  store.fetchChallenges()
+
   // Add keyboard shortcut for running code
   window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onUnmounted(() => {
+  clearInterval(healthTimer)
+  window.removeEventListener('keydown', handleGlobalKeydown)
 })
 
 const hasDiagnostics = computed(() => {
   return store.output && (store.output.diagnostics || store.output.ai_error_help)
 })
+
+const activeChallenge = computed(() => {
+  return store.challenges.find(c => c.id === store.activeChallengeId) || null
+})
+
+// Autosave editor code changes to localStorage
+watch(() => store.code, () => store.saveCodeToStorage())
 
 // Watch chat history and scroll to bottom
 watch(() => store.chatHistory.length, async () => {
@@ -625,6 +860,11 @@ const sendMessage = () => {
   if (!chatInput.value.trim()) return
   store.sendChatMessage(chatInput.value)
   chatInput.value = ''
+}
+
+const askHint = () => {
+  const nextLevel = Math.min(3, store.hintLevel + 1)
+  store.requestHint(nextLevel)
 }
 
 const applyFix = (code) => {
@@ -661,22 +901,13 @@ const clearCode = () => {
   store.code = '# Write your Python code here...\n'
 }
 
-const loadExample = () => {
-  store.code = `# PyFlow Example - Hello World
-def greet(name):
-    """Returns a greeting message."""
-    return f"Hello, {name}! Welcome to PyFlow."
-
-# Main execution
-if __name__ == "__main__":
-    names = ["Alice", "Bob", "Charlie"]
-    
-    for name in names:
-        message = greet(name)
-        print(message)
-    
-    print("\\n✨ Code executed successfully!")
-`
+const onExampleSelect = () => {
+  const example = examples.find((ex) => ex.title === selectedExample.value)
+  if (example) {
+    store.code = example.code
+    store.activeTab = 'console'
+  }
+  selectedExample.value = ''
 }
 </script>
 
@@ -807,9 +1038,23 @@ if __name__ == "__main__":
   background: rgba(99, 102, 241, 0.1);
 }
 
+/* Neutral status dot (connecting state) */
+.status-dot-muted {
+  background: var(--text-muted);
+  box-shadow: 0 0 10px rgba(100, 116, 139, 0.4);
+}
+
 /* Elevated background */
 .bg-elevated {
   background: var(--bg-elevated);
+}
+
+/* Compact example dropdown in the editor header */
+.example-select {
+  width: 140px;
+  padding: 0.375rem 2rem 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  background: var(--bg-surface);
 }
 
 /* Hide utilities */

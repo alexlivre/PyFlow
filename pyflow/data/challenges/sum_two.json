@@ -1,0 +1,11 @@
+{
+  "id": "sum_two",
+  "title": "Soma de dois números",
+  "description": "Escreva uma função sum_two(a, b) que retorna a soma de a e b.",
+  "solution_hint": "def sum_two(a, b):\n    return a + b",
+  "tests": [
+    { "name": "sum_two(2, 3) == 5", "harness": "sum_two(2, 3)", "expected": "5" },
+    { "name": "sum_two(-1, 1) == 0", "harness": "sum_two(-1, 1)", "expected": "0" },
+    { "name": "sum_two(10, 32) == 42", "harness": "sum_two(10, 32)", "expected": "42" }
+  ]
+}

@@ -17,6 +17,7 @@ Exemplo de uso:
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 from typing import Optional
 
 
@@ -35,13 +36,20 @@ class Settings(BaseSettings):
         PYFLOW_MAX_CODE_CHARS: Limite máximo de caracteres do código.
         PYFLOW_MAX_OUTPUT_CHARS_DEFAULT: Limite padrão de saída.
         PYFLOW_MAX_OUTPUT_CHARS_MAX: Limite máximo absoluto de saída.
+        PYFLOW_MAX_CONCURRENT_RUNS: Máximo de execuções simultâneas.
+        PYFLOW_EXECUTION_BACKEND: Backend de execução ('subprocess' ou 'docker').
+        PYFLOW_DOCKER_IMAGE: Imagem usada pelo backend docker.
         PYFLOW_AI_MAX_TOKENS: Máximo de tokens para respostas da IA.
         PYFLOW_AI_TEMPERATURE: Temperatura para geração da IA.
+        MINIMAX_API_KEY: Chave de API do MiniMax (opcional).
+        OPENCODE_API_KEY: Chave de API do OpenCode Zen (opcional).
+        OPENCODE_GO_API_KEY: Chave de API do OpenCode Go (opcional).
         OPENROUTER_API_KEY: Chave de API do OpenRouter (opcional).
         OPENAI_API_KEY: Chave de API da OpenAI (opcional).
         GEMINI_API_KEY: Chave de API do Google Gemini (opcional).
         ANTHROPIC_API_KEY: Chave de API da Anthropic (opcional).
         DEEPSEEK_API_KEY: Chave de API do DeepSeek (opcional).
+        PYFLOW_LOG_JSON: Habilita logs estruturados JSON (logs/pyflow-*.json).
     """
 
     # Rede / Servidor
@@ -54,10 +62,39 @@ class Settings(BaseSettings):
     PYFLOW_MAX_CODE_CHARS: int = 100_000
     PYFLOW_MAX_OUTPUT_CHARS_DEFAULT: int = 100_000
     PYFLOW_MAX_OUTPUT_CHARS_MAX: int = 500_000
+    PYFLOW_MAX_CONCURRENT_RUNS: int = 4
+    PYFLOW_EXECUTION_BACKEND: str = "subprocess"
+    PYFLOW_DOCKER_IMAGE: str = "python:3.11.9-slim"
 
     # IA
     PYFLOW_AI_MAX_TOKENS: int = 800
     PYFLOW_AI_TEMPERATURE: float = 1.0
+
+    # Prompts da IA (persona configurável)
+    PYFLOW_AI_EXPLAINER_PROMPT: str = (
+        "Você é um assistente de programação experiente ajudando um adulto iniciante (24 anos). "
+        "Seu tom deve ser profissional, claro e objetivo, sem ser infantil ou acadêmico demais. "
+        "Explique o erro ocorrido e como corrigir. "
+        "IMPORTANTE: Sempre mencione explicitamente o número da linha onde o erro ocorreu (se identificável) no resumo ou na correção. "
+        "O código fornecido tem números de linha (ex: '001 | código') apenas para sua referência. "
+        "Quando você sugerir código corrigido (suggested_code), NÃO inclua os números de linha - retorne apenas o código Python puro. "
+        "Responda EXCLUSIVAMENTE em JSON no formato: "
+        '{ "summary": "...", "probable_fix": "...", "suggested_code": "..." (opcional, código Python puro sem números de linha) }'
+    )
+    PYFLOW_AI_TUTOR_PROMPT: str = (
+        "Você é um tutor de Python experiente ajudando um adulto iniciante. "
+        "Suas respostas DEVEM ser bem estruturadas usando Markdown para facilitar a leitura.\n\n"
+        "Diretrizes de Formatação:\n"
+        "- Use **negrito** para conceitos chave.\n"
+        "- Use blocos de código (```python) para exemplos.\n"
+        "- Use listas (bullet points) para passos ou explicações.\n"
+        "- Use títulos (###) para separar seções se a resposta for longa.\n"
+        "- Pule linhas entre parágrafos para tornar o texto arejado e legível.\n"
+        "- Seja direto, educado e encorajador.\n"
+        "- Se explicar código, explique linha a linha ou por blocos lógicos.\n\n"
+        "IMPORTANTE: O código do usuário pode ter números de linha (ex: '001 | código') apenas para referência. "
+        "Quando você escrever código nos exemplos, NÃO inclua esses números - escreva apenas código Python puro."
+    )
 
     # Chaves de API (Fallbacks)
     OPENAI_API_KEY: Optional[str] = None
@@ -65,6 +102,15 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
+    MINIMAX_API_KEY: Optional[str] = None
+    OPENCODE_API_KEY: Optional[str] = None
+    OPENCODE_GO_API_KEY: Optional[str] = None
+
+    # Segurança
+    PYFLOW_API_TOKEN: Optional[str] = None
+
+    # Logging
+    PYFLOW_LOG_JSON: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -74,3 +120,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Shared filesystem locations (kept here to avoid circular imports between
+# pyflow.core.connection and pyflow.core.security).
+CONNECTION_DIR = Path.home() / ".pyflow"
+CONNECTION_FILE = CONNECTION_DIR / "connection.json"

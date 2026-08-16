@@ -22,12 +22,10 @@ Funções:
 import json
 import os
 import atexit
-from pathlib import Path
 from loguru import logger
 from pyflow import __version__
-
-CONNECTION_DIR = Path.home() / ".pyflow"
-CONNECTION_FILE = CONNECTION_DIR / "connection.json"
+from pyflow.core.config import CONNECTION_DIR, CONNECTION_FILE
+from pyflow.core.security import get_or_create_token
 
 
 def _ensure_dir():
@@ -62,11 +60,16 @@ def write_connection_file(host: str, port: int, pid: int):
         "url": f"http://{host}:{port}",
         "pid": pid,
         "version": __version__,
-        "status": "online"
+        "status": "online",
+        "token": get_or_create_token(),
     }
     try:
         with open(CONNECTION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+        try:
+            CONNECTION_FILE.chmod(0o600)
+        except OSError:
+            pass
         logger.info(f"Connection file written to {CONNECTION_FILE}")
     except Exception as e:
         logger.error(f"Failed to write connection file: {e}")

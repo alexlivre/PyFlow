@@ -16,11 +16,10 @@ A classe AIService é totalmente estática e não mantém estado,
 facilitando o uso assíncrono em múltiplas requisições.
 """
 
-import os
 import json
 import re
 import httpx
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from litellm import acompletion
 from tenacity import retry, stop_after_attempt, wait_fixed
 from loguru import logger
@@ -57,6 +56,23 @@ class AIService:
         return "gpt-5" in model_lower
 
     @staticmethod
+    def _supports_json_mode(model: str) -> bool:
+        """
+        Verifica se o modelo suporta response_format json_object.
+
+        Alguns provedores (DeepSeek, Ollama) rejeitam o parâmetro
+        response_format; para eles a chamada é feita sem esse parâmetro.
+
+        Args:
+            model: Identificador do modelo.
+
+        Returns:
+            bool: True se o modelo suporta response_format json_object.
+        """
+        lowered = model.lower()
+        return "deepseek" not in lowered and "ollama" not in lowered
+
+    @staticmethod
     def _is_openrouter(config: AIConfig) -> bool:
         """
         Verifica se a configuração usa OpenRouter.
@@ -75,6 +91,46 @@ class AIService:
         if config.base_url and "openrouter.ai" in config.base_url.lower():
             return True
         return False
+
+    @staticmethod
+    def _is_opencode(config: AIConfig) -> bool:
+        """
+        Verifica se a configuração usa OpenCode Zen.
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            bool: True se o provider for 'opencode'.
+        """
+        return config.provider.lower() == "opencode"
+
+    @staticmethod
+    def _is_opencode_go(config: AIConfig) -> bool:
+        """
+        Verifica se a configuração usa OpenCode Go.
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            bool: True se o provider for 'opencode-go'.
+        """
+        return config.provider.lower() == "opencode-go"
+
+    @staticmethod
+    def _opencode_endpoint_kind(model_id: str) -> str:
+        """Map an OpenCode Zen/Go model id to its API protocol.
+
+        gpt-5* models use the Responses API, Claude/Qwen/MiniMax-M* use the
+        Anthropic Messages API, everything else uses OpenAI-compatible chat.
+        """
+        lowered = model_id.lower()
+        if "gpt-5" in lowered:
+            return "responses"
+        if lowered.startswith(("claude-", "qwen")) or "minimax-m" in lowered:
+            return "messages"
+        return "chat"
 
     @staticmethod
     def _build_model_string(config: AIConfig) -> str:
@@ -115,6 +171,12 @@ class AIService:
 
         # Caso especial OpenAI: litellm aceita "gpt-4" direto, mas "openai/gpt-4" também funciona.
         # Vamos prefixar sempre para clareza, exceto se provider for "custom" ou algo assim.
+        # MiniMax: LiteLLM native provider
+        if config.provider.lower() == "minimax":
+            return f"minimax/{config.model_id}"
+        # OpenCode Zen/Go: raw gateway ids, protocol chosen by endpoint kind
+        if config.provider.lower() in ("opencode", "opencode-go"):
+            return config.model_id
         return f"{config.provider}/{config.model_id}"
 
     @staticmethod
@@ -137,45 +199,6 @@ class AIService:
         # Format: 001 | code line
         return "\n".join([f"{i+1:03d} | {line}" for i, line in enumerate(lines)])
 
-    @staticmethod
-    def _prepare_env(config: AIConfig) -> Dict[str, str]:
-        """
-        Prepara variáveis de ambiente para chamada de IA.
-
-        Configura as chaves de API apropriadas baseado no provider
-        especificado na configuração.
-
-        Args:
-            config: Configuração do provedor de IA.
-
-        Returns:
-            Dict[str, str]: Dicionário de variáveis de ambiente.
-        """
-        env = os.environ.copy()
-        if config.api_key:
-            # LiteLLM procura chaves específicas ou OPENAI_API_KEY genérica
-            # Vamos setar chaves comuns baseadas no provider
-            p = config.provider.lower()
-            if p == "openrouter":
-                # OpenRouter usa a mesma variável que OpenAI pois usa endpoint compatível
-                env["OPENROUTER_API_KEY"] = config.api_key
-                env["OPENAI_API_KEY"] = config.api_key
-            elif "openai" in p:
-                env["OPENAI_API_KEY"] = config.api_key
-            elif "gemini" in p or "google" in p:
-                env["GEMINI_API_KEY"] = config.api_key
-            elif "anthropic" in p:
-                env["ANTHROPIC_API_KEY"] = config.api_key
-            # etc.
-            # Também podemos setar LITELLM_API_KEY se funcionar genericamente?
-            # Melhor abordagem: litellm aceita api_key como argumento em completion()
-
-        if config.base_url:
-            # Base URL é passado no completion
-            pass
-
-        return env
-
     @classmethod
     def _get_openrouter_base_url(cls) -> str:
         """
@@ -185,6 +208,48 @@ class AIService:
             str: URL base da API do OpenRouter.
         """
         return "https://openrouter.ai/api/v1"
+
+    @classmethod
+    def _get_opencode_base_url(cls) -> str:
+        """
+        Retorna a URL base do OpenCode Zen.
+
+        Returns:
+            str: URL base da API do OpenCode Zen.
+        """
+        return "https://opencode.ai/zen/v1"
+
+    @classmethod
+    def _get_opencode_go_base_url(cls) -> str:
+        """
+        Retorna a URL base do OpenCode Go.
+
+        Returns:
+            str: URL base da API do OpenCode Go.
+        """
+        return "https://opencode.ai/zen/go/v1"
+
+    @classmethod
+    def _resolve_base_url(cls, config: AIConfig) -> Optional[str]:
+        """
+        Resolve a URL base efetiva para o provider configurado.
+
+        Usa a base_url fornecida pelo usuário ou o padrão do
+        provedor (OpenRouter, OpenCode Zen, OpenCode Go).
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            Optional[str]: URL base efetiva ou None.
+        """
+        if cls._is_openrouter(config):
+            return config.base_url or cls._get_openrouter_base_url()
+        if cls._is_opencode(config):
+            return config.base_url or cls._get_opencode_base_url()
+        if cls._is_opencode_go(config):
+            return config.base_url or cls._get_opencode_go_base_url()
+        return config.base_url
 
     @classmethod
     def _get_openrouter_headers(cls) -> Dict[str, str]:
@@ -286,6 +351,99 @@ class AIService:
             raise
 
     @classmethod
+    async def _completion(
+        cls,
+        model: str,
+        messages: list[dict],
+        config: AIConfig,
+        *,
+        extra_headers: dict | None = None,
+        response_format: dict | None = None,
+        gpt5_input: str | None = None,
+    ) -> str:
+        """
+        Route a completion through the GPT-5 Responses API or LiteLLM.
+
+        GPT-5 models require the OpenAI Responses API, so `gpt5_input`
+        (a plain-text prompt assembled by the caller) is sent to
+        `_call_gpt5_responses_api`. All other models go through
+        LiteLLM's `acompletion` with `messages`.
+
+        The GPT-5 text building stays in each caller (`explain_error`,
+        `chat`) to preserve the exact prompt shape each one historically
+        built; `_completion` only decides which backend to use.
+
+        Args:
+            model: Model identifier for the provider.
+            messages: Chat messages for the LiteLLM path.
+            config: Provider configuration (api_key, base_url).
+            extra_headers: Extra headers for the LiteLLM request.
+            response_format: Response format for the LiteLLM request.
+            gpt5_input: Plain-text input for the GPT-5 Responses API.
+
+        Returns:
+            str: The model's text response.
+        """
+        if cls._is_gpt5_model(model):
+            return await cls._call_gpt5_responses_api(
+                model=model,
+                input_text=gpt5_input,
+                api_key=config.api_key,
+                base_url=cls._resolve_base_url(config),
+            )
+
+        base_url = cls._resolve_base_url(config)
+
+        params = {
+            "model": model,
+            "messages": messages,
+            "api_key": config.api_key,
+            "base_url": base_url,
+            "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
+            "temperature": settings.PYFLOW_AI_TEMPERATURE,
+        }
+
+        # Force usage of OpenAI client protocol for OpenRouter to respect
+        # the base_url regardless of model prefix (e.g. anthropic/...)
+        if cls._is_openrouter(config):
+            params["custom_llm_provider"] = "openai"
+            extra_headers = cls._get_openrouter_headers()
+
+        # OpenCode Zen/Go gateways expose several protocols under one base
+        # URL; LiteLLM must be told which provider to emulate per model.
+        if cls._is_opencode(config) or cls._is_opencode_go(config):
+            endpoint_kind = cls._opencode_endpoint_kind(model)
+            if endpoint_kind == "messages":
+                params["custom_llm_provider"] = "anthropic"
+            elif endpoint_kind == "chat":
+                params["custom_llm_provider"] = "openai"
+
+        if extra_headers:
+            params["extra_headers"] = extra_headers
+
+        # Some providers (DeepSeek, Ollama) reject response_format, so only
+        # send it to models that support json_object mode.
+        supports_json_mode = cls._supports_json_mode(model)
+        if response_format and supports_json_mode:
+            params["response_format"] = response_format
+
+        try:
+            response = await acompletion(**params)
+        except Exception:
+            # A provider that nominally supports json mode can still reject
+            # response_format; retry once without it.
+            if response_format and supports_json_mode:
+                logger.warning(
+                    f"Model {model} rejected response_format; retrying without it"
+                )
+                params.pop("response_format", None)
+                response = await acompletion(**params)
+            else:
+                raise
+
+        return response.choices[0].message.content
+
+    @classmethod
     async def explain_error(cls, code: str, stderr: str, diagnostics: Diagnostics, config: AIConfig) -> Optional[AIErrorHelp]:
         """
         Gera uma explicação de IA para um erro de execução de código.
@@ -310,16 +468,7 @@ class AIService:
         """
         model = cls._build_model_string(config)
         
-        system_prompt = (
-            "Você é um assistente de programação experiente ajudando um adulto iniciante (24 anos). "
-            "Seu tom deve ser profissional, claro e objetivo, sem ser infantil ou acadêmico demais. "
-            "Explique o erro ocorrido e como corrigir. "
-            "IMPORTANTE: Sempre mencione explicitamente o número da linha onde o erro ocorreu (se identificável) no resumo ou na correção. "
-            "O código fornecido tem números de linha (ex: '001 | código') apenas para sua referência. "
-            "Quando você sugerir código corrigido (suggested_code), NÃO inclua os números de linha - retorne apenas o código Python puro. "
-            "Responda EXCLUSIVAMENTE em JSON no formato: "
-            "{ \"summary\": \"...\", \"probable_fix\": \"...\", \"suggested_code\": \"...\" (opcional, código Python puro sem números de linha) }"
-        )
+        system_prompt = settings.PYFLOW_AI_EXPLAINER_PROMPT
         
         formatted_code = cls._format_code_with_lines(code)
         
@@ -343,56 +492,19 @@ Por favor, forneça o diagnóstico JSON.
 """
         
         try:
-            # Check if this is a GPT-5 model - use Responses API
-            # Check if this is a GPT-5 model - use Responses API
-            if cls._is_gpt5_model(model):
-                base_url = config.base_url
-                if cls._is_openrouter(config):
-                    base_url = config.base_url or cls._get_openrouter_base_url()
-                    
-                full_input = f"{system_prompt}\n\n{user_content}"
-                content = await cls._call_gpt5_responses_api(
-                    model=model,
-                    input_text=full_input,
-                    api_key=config.api_key,
-                    base_url=base_url
-                )
-            else:
-                # Prepare base parameters
-                base_url = config.base_url
-                extra_headers = None
-                params = {}
-
-                # OpenRouter: set base_url and headers
-                if cls._is_openrouter(config):
-                    base_url = config.base_url or cls._get_openrouter_base_url()
-                    extra_headers = cls._get_openrouter_headers()
-                    # Force usage of OpenAI client protocol to respect the base_url
-                    # regardless of model prefix (e.g. anthropic/...)
-                    params["custom_llm_provider"] = "openai"
-
-                # Use standard LiteLLM for other models
-                params.update({
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
-                    ],
-                    "api_key": config.api_key,
-                    "base_url": base_url,
-                    "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
-                    "temperature": settings.PYFLOW_AI_TEMPERATURE,
-                })
-
-                # Add extra headers for OpenRouter
-                if extra_headers:
-                    params["extra_headers"] = extra_headers
-
-                # Add response_format for models that support it
-                params["response_format"] = {"type": "json_object"}
-
-                response = await acompletion(**params)
-                content = response.choices[0].message.content
+            # GPT-5 needs the system + user text concatenated exactly as
+            # before; _completion decides which backend to use.
+            full_input = f"{system_prompt}\n\n{user_content}"
+            content = await cls._completion(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                config=config,
+                response_format={"type": "json_object"},
+                gpt5_input=full_input,
+            )
             
             # Try to parse JSON, handling both clean JSON and markdown-wrapped JSON
             try:
@@ -444,97 +556,127 @@ Por favor, forneça o diagnóstico JSON.
         """
         model = cls._build_model_string(config)
 
-        system_prompt = (
-            "Você é um tutor de Python experiente ajudando um adulto iniciante. "
-            "Suas respostas DEVEM ser bem estruturadas usando Markdown para facilitar a leitura.\n\n"
-            "Diretrizes de Formatação:\n"
-            "- Use **negrito** para conceitos chave.\n"
-            "- Use blocos de código (```python) para exemplos.\n"
-            "- Use listas (bullet points) para passos ou explicações.\n"
-            "- Use títulos (###) para separar seções se a resposta for longa.\n"
-            "- Pule linhas entre parágrafos para tornar o texto arejado e legível.\n"
-            "- Seja direto, educado e encorajador.\n"
-            "- Se explicar código, explique linha a linha ou por blocos lógicos.\n\n"
-            "IMPORTANTE: O código do usuário pode ter números de linha (ex: '001 | código') apenas para referência. "
-            "Quando você escrever código nos exemplos, NÃO inclua esses números - escreva apenas código Python puro."
-        )
+        system_prompt = settings.PYFLOW_AI_TUTOR_PROMPT
         
-        # Check if this is a GPT-5 model - use Responses API
-        if cls._is_gpt5_model(model):
-            # Build input for Responses API
-            input_parts = [system_prompt]
-            
-            if code:
-                formatted_code = cls._format_code_with_lines(code)
-                input_parts.append(f"\nContexto do código atual (com linhas):\n```text\n{formatted_code}\n```")
-            
-            # Add history
-            for msg in history:
-                role_label = "Usuário" if msg.role == "user" else "Assistente"
-                input_parts.append(f"\n{role_label}: {msg.content}")
-            
-            input_parts.append(f"\nUsuário: {user_message}")
-            
-            full_input = "\n".join(input_parts)
-            
-            base_url = config.base_url
-            if cls._is_openrouter(config):
-                base_url = config.base_url or cls._get_openrouter_base_url()
-            
-            try:
-                return await cls._call_gpt5_responses_api(
-                    model=model,
-                    input_text=full_input,
-                    api_key=config.api_key,
-                    base_url=base_url
-                )
-            except Exception as e:
-                logger.error(f"Falha na IA GPT-5 (chat): {e}")
-                return f"Erro ao contatar IA: {str(e)}"
-        
-        # Standard LiteLLM flow for non-GPT-5 models
+        # Build messages and the plain-text input for the GPT-5 path.
+        # The caller keeps building gpt5_input so the exact prompt shape
+        # each model historically received is preserved.
         messages = [{"role": "system", "content": system_prompt}]
+        input_parts = [system_prompt]
 
         # Adicionar contexto do código se existir
         if code:
             formatted_code = cls._format_code_with_lines(code)
             messages.append({"role": "system", "content": f"Contexto do código atual (com linhas):\n```text\n{formatted_code}\n```"})
+            input_parts.append(f"\nContexto do código atual (com linhas):\n```text\n{formatted_code}\n```")
 
         # Histórico
         for msg in history:
             messages.append(msg.model_dump())
+            role_label = "Usuário" if msg.role == "user" else "Assistente"
+            input_parts.append(f"\n{role_label}: {msg.content}")
 
         messages.append({"role": "user", "content": user_message})
+        input_parts.append(f"\nUsuário: {user_message}")
 
-        # Prepare base parameters
-        base_url = config.base_url
-        extra_headers = None
-
-        # OpenRouter: set base_url and headers
-        if cls._is_openrouter(config):
-            base_url = config.base_url or cls._get_openrouter_base_url()
-            extra_headers = cls._get_openrouter_headers()
+        gpt5_input = "\n".join(input_parts) if cls._is_gpt5_model(model) else None
 
         try:
-            params = {
-                "model": model,
-                "messages": messages,
-                "api_key": config.api_key,
-                "base_url": base_url,
-                "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
-                "temperature": settings.PYFLOW_AI_TEMPERATURE
-            }
-            
-            # Force OpenAI protocol for OpenRouter
-            if cls._is_openrouter(config):
-                 params["custom_llm_provider"] = "openai"
-
-            # Add extra headers for OpenRouter
-            if extra_headers:
-                params["extra_headers"] = extra_headers
-
-            response = await acompletion(**params)
-            return response.choices[0].message.content
+            return await cls._completion(
+                model=model,
+                messages=messages,
+                config=config,
+                gpt5_input=gpt5_input,
+            )
         except Exception as e:
-            logger.error(f"Falha na IA (chat): {e}")
+            error_label = "Falha na IA GPT-5 (chat)" if gpt5_input else "Falha na IA (chat)"
+            logger.error(f"{error_label}: {e}")
+            return f"Erro ao contatar IA: {str(e)}"
+
+    @classmethod
+    async def socratic_hint(cls, code: str, diagnostics: Diagnostics | None, level: int, config: AIConfig) -> str:
+        """
+        Gera uma dica socrática progressiva para o código do usuário.
+
+        Utiliza o modelo de IA configurado para guiar o aluno na
+        descoberta do erro em três níveis de profundidade:
+
+        - Nível 1: pergunta-guia conceitual, sem fornecer a solução.
+        - Nível 2: localiza a área problemática e o conceito envolvido.
+        - Nível 3: quase-solução, apontando a causa exata e um esboço.
+
+        Args:
+            code: Código Python atual no editor.
+            diagnostics: Informações estruturadas do erro (opcional).
+            level: Nível da dica (1 a 3).
+            config: Configuração do provedor de IA.
+
+        Returns:
+            str: Dica da IA formatada em Markdown.
+
+        Note:
+            O código é formatado com números de linha para referência.
+            O prompt muda conforme o nível para escapar da resposta direta.
+        """
+        model = cls._build_model_string(config)
+        level = max(1, min(3, level))
+
+        level_instructions = {
+            1: (
+                "Nível 1: faça apenas uma pergunta-guia conceitual que leve o aluno "
+                "a descobrir sozinho onde está o problema. NÃO forneça a solução e "
+                "NÃO mencione a linha do erro."
+            ),
+            2: (
+                "Nível 2: localize a área problemática indicando a linha aproximada "
+                "e o conceito envolvido, mas sem dar a correção pronta."
+            ),
+            3: (
+                "Nível 3: dê uma quase-solução: aponte a causa exata e ofereça um "
+                "esboço ou pseudocódigo, incentivando o aluno a completar."
+            ),
+        }
+
+        system_prompt = (
+            "Você é um tutor socrático de Python para um adulto iniciante. "
+            "Responda em português, usando Markdown curto.\n\n"
+            f"Instrução desta resposta: {level_instructions[level]}"
+        )
+
+        formatted_code = cls._format_code_with_lines(code)
+
+        user_content = f"""Código do usuário (com números de linha):
+```text
+{formatted_code}
+```
+"""
+
+        if diagnostics:
+            if level > 1:
+                user_content += f"""
+Diagnóstico do erro:
+Tipo: {diagnostics.error_type}
+Mensagem: {diagnostics.message}
+Linha: {diagnostics.line}
+Contexto: {diagnostics.context or "N/A"}
+"""
+            else:
+                user_content += "\nAlgo não está funcionando como esperado no código acima.\n"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        gpt5_input = f"{system_prompt}\n\n{user_content}" if cls._is_gpt5_model(model) else None
+
+        try:
+            return await cls._completion(
+                model=model,
+                messages=messages,
+                config=config,
+                gpt5_input=gpt5_input,
+            )
+        except Exception as e:
+            error_label = "Falha na IA GPT-5 (socratic_hint)" if gpt5_input else "Falha na IA (socratic_hint)"
+            logger.error(f"{error_label}: {e}")
             return f"Erro ao contatar IA: {str(e)}"

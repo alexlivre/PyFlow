@@ -1,0 +1,9 @@
+{
+  "id": "hello_world",
+  "title": "Hello World",
+  "description": "Imprima 'Olá, PyFlow!'",
+  "solution_hint": "print('Olá, PyFlow!')",
+  "tests": [
+    { "name": "saída correta", "expected": "Olá, PyFlow!\n" }
+  ]
+}

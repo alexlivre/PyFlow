@@ -11,17 +11,28 @@ Rotas incluídas:
     - /health: Verificação de saúde do serviço
     - /run: Execução de código Python
     - /chat: Chat com IA contextual
+    - /hint: Dica socrática progressiva
 
 Exemplo de uso:
     >>> import uvicorn
     >>> uvicorn.run("pyflow.main:app", host="127.0.0.1", port=8000)
 """
 
+from urllib.parse import urlsplit
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pyflow.api import routes_run, routes_chat, routes_health, routes_models
+from fastapi.responses import JSONResponse
+from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models, routes_stream, routes_hint, routes_challenges
 from pyflow import __version__
+from pyflow.core.config import settings
 from pyflow.core.connection import register_cleanup
+from pyflow.core.logging_config import configure_logging
+
+ALLOWED_HOST_SUFFIXES = ("localhost", "127.0.0.1", "pyflow-api", "pyflow-ui", "0.0.0.0", "::1")
+
+# Structured JSON logs when PYFLOW_LOG_JSON is enabled; never crashes the app.
+configure_logging(settings)
 
 app = FastAPI(
     title="PyFlow API",
@@ -29,20 +40,37 @@ app = FastAPI(
     description="API local para execução de código Python e assistência IA."
 )
 
+
+@app.middleware("http")
+async def reject_non_local_hosts(request, call_next):
+    raw_host = request.headers.get("host", "")
+    try:
+        host = (urlsplit(f"//{raw_host}").hostname or "").lower()
+    except ValueError:
+        # Malformed bracketed host (e.g. "[::1"): treat as non-local.
+        return JSONResponse(status_code=403, content={"detail": "Non-local host not allowed"})
+    if host and not any(host == suffix or host.endswith(f".{suffix}") for suffix in ALLOWED_HOST_SUFFIXES):
+        return JSONResponse(status_code=403, content={"detail": "Non-local host not allowed"})
+    return await call_next(request)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=False,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
 
 # Register routes
+app.include_router(routes_auth.router)
 app.include_router(routes_health.router)
 app.include_router(routes_run.router)
+app.include_router(routes_stream.router)
 app.include_router(routes_chat.router)
+app.include_router(routes_hint.router)
 app.include_router(routes_models.router)
+app.include_router(routes_challenges.router)
 
 # Register cleanup on exit (normal python exit)
 # Note: Uvicorn handles signals, but atexit covers many cases.

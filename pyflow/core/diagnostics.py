@@ -30,30 +30,27 @@ FILE_LINE_REGEX = re.compile(r'\s*File "([^"]+)", line (\d+)(?:, in (.+))?')
 
 def sanitize_path(path: str, user_filename: str = "<user_code>") -> str:
     """
-    Substitui o nome do arquivo temporário por um nome genérico.
+    Replace temp-file occurrences in a path string with a generic name.
 
-    Remove informações de caminho que podem expor detalhes do sistema
-    ou estrutura de diretórios do servidor.
+    Removes path information that could expose system details or the
+    server's directory structure, replacing only the temp-file occurrences
+    while preserving the rest of the string.
 
     Args:
-        path: Caminho ou string contendo caminhos para sanitizar.
-        user_filename: Nome genérico para substituir (padrão: '<user_code>').
+        path: Path or string containing paths to sanitize.
+        user_filename: Generic name to use as replacement (default: '<user_code>').
 
     Returns:
-        String com caminhos sanitizados.
+        String with temp-file occurrences sanitized.
 
     Example:
-        >>> sanitize_path("/tmp/pyflow_tmp_abc123.py")
-        '<user_code>'
+        >>> sanitize_path("File \\"/tmp/pyflow_tmp_req_abc123.py\\", line 1")
+        'File "/tmp/<user_code>", line 1'
     """
-    if user_filename in path or "pyflow_tmp_" in path:
-        return "<user_code>"
-    # Simple heuristic to shorten venv/system paths could go here,
-    # but strictly replacing the temp file is the main requirement.
-    return path
+    return re.sub(r"pyflow_tmp_[A-Za-z0-9_\-]+\.py", user_filename, path)
 
 
-def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
+def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = False) -> Diagnostics:
     """
     Analisa uma string de traceback e extrai informações estruturadas.
 
@@ -63,6 +60,8 @@ def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
     Args:
         stderr: String contendo o traceback completo.
         user_filename: Nome do arquivo temporário para buscar no traceback.
+        include_raw: Se o traceback completo (não sanitizado) deve ser
+            incluído no diagnóstico.
 
     Returns:
         Diagnostics: Objeto com informações estruturadas do erro.
@@ -104,6 +103,18 @@ def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
                 found_frame_idx = i
                 break
 
+    # Fallback: some backends run the user code from <stdin> (e.g. docker
+    # mode pipes the script via `python -u -`), so the traceback never names
+    # the temp file. Locate the <stdin> frame instead so line diagnostics
+    # and editor highlighting still work.
+    if found_frame_idx == -1:
+        for i in range(len(lines) - 2, -1, -1):
+            m = FILE_LINE_REGEX.match(lines[i])
+            if m and "<stdin>" in m.group(1):
+                line_num = int(m.group(2))
+                found_frame_idx = i
+                break
+
     # Extract context if present (sometimes traceback shows the line and a caret)
     # Usually Python tracebacks show:
     #   File "...", line X, in ...
@@ -132,16 +143,15 @@ def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
         if ctx_lines:
             context = "\n".join(ctx_lines)
 
-    # Sanitize traceback if requested (we allow caller to handle strictly raw,
-    # but here we populate parts).
-    # The requirement says "raw_traceback" is optional.
+    # raw_traceback stays unsanitized on purpose when requested; the engine
+    # sanitizes display stderr and the parsed message separately.
 
     return Diagnostics(
         error_type=error_type,
         message=message,
         line=line_num,
         context=context,
-        raw_traceback=None  # Filled by caller if needed
+        raw_traceback=stderr.strip() if include_raw else None
     )
 
 

@@ -103,6 +103,7 @@ class RunRequest(BaseModel):
     timeout_seconds: Optional[int] = None
     max_output_chars: Optional[int] = None
     include_raw_traceback: bool = False
+    rich_output: bool = False
     ai_explain_on_error: bool = False
     ai_config: Optional[AIConfig] = None
 
@@ -123,6 +124,7 @@ class RunResponse(BaseModel):
         output_truncated: Se a saída foi truncada por exceder limite.
         diagnostics: Informações de diagnóstico de erro (opcional).
         ai_error_help: Ajuda da IA sobre o erro (opcional).
+        images: Figuras matplotlib codificadas como PNGs em base64 (opcional).
         request_id: Identificador único da requisição.
     """
 
@@ -134,6 +136,7 @@ class RunResponse(BaseModel):
     output_truncated: bool
     diagnostics: Optional[Diagnostics] = None
     ai_error_help: Optional[AIErrorHelp] = None
+    images: List[str] = []
     request_id: str
 
 
@@ -149,7 +152,7 @@ class ChatMessage(BaseModel):
         content: Conteúdo da mensagem.
     """
 
-    role: str
+    role: Literal["user", "assistant"]
     content: str
 
 
@@ -187,6 +190,109 @@ class ChatResponse(BaseModel):
     reply: str
     history: List[ChatMessage]
     request_id: str
+
+
+# --- Hint Endpoint ---
+class HintRequest(BaseModel):
+    """
+    Requisição de dica socrática com IA.
+
+    Contém o código, o nível de dica (1 a 3) e o diagnóstico do erro.
+
+    Attributes:
+        code: Código Python atual no editor.
+        level: Nível da dica (1 = pergunta-guia, 2 = localiza o problema,
+            3 = quase-solução).
+        diagnostics: Diagnóstico do erro (opcional).
+        ai_config: Configuração do provedor de IA (opcional).
+    """
+
+    code: str
+    level: int = Field(1, ge=1, le=3)
+    diagnostics: Optional[Diagnostics] = None
+    ai_config: Optional[AIConfig] = None
+
+
+class HintResponse(BaseModel):
+    """
+    Resposta de dica socrática da IA.
+
+    Attributes:
+        hint: Dica gerada pela IA.
+        request_id: Identificador único da requisição.
+    """
+
+    hint: str
+    request_id: str
+
+
+# --- Challenges Endpoint ---
+class ChallengeTestResult(BaseModel):
+    """
+    Resultado de um teste individual de desafio.
+
+    Attributes:
+        name: Nome do teste.
+        passed: Se o teste passou.
+        stdout: Saída capturada durante o teste.
+        expected: Valor esperado pelo teste.
+        actual: Valor produzido pelo código do aluno.
+    """
+
+    name: str
+    passed: bool
+    stdout: str
+    expected: str
+    actual: str
+
+
+class ChallengeResult(BaseModel):
+    """
+    Resultado da execução de um desafio.
+
+    Attributes:
+        challenge_id: Identificador do desafio.
+        tests: Resultados individuais de cada teste.
+        passed_count: Quantidade de testes aprovados.
+        total_count: Quantidade total de testes.
+    """
+
+    challenge_id: str
+    tests: List[ChallengeTestResult]
+    passed_count: int
+    total_count: int
+
+
+class ChallengeInfo(BaseModel):
+    """
+    Metadados públicos de um desafio.
+
+    Attributes:
+        id: Identificador do desafio.
+        title: Título do desafio.
+        description: Enunciado do desafio.
+        solution_hint: Dica de solução (opcional ao resolver).
+    """
+
+    id: str
+    title: str
+    description: str
+    solution_hint: str
+
+
+class ChallengeRunRequest(BaseModel):
+    """
+    Requisição para executar um desafio.
+
+    Attributes:
+        challenge_id: Identificador do desafio.
+        code: Código Python do aluno.
+        timeout_seconds: Tempo máximo de execução em segundos (opcional).
+    """
+
+    challenge_id: str
+    code: str
+    timeout_seconds: Optional[int] = None
 
 
 # --- Health Endpoint ---

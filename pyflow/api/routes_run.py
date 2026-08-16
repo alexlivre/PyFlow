@@ -14,17 +14,22 @@ O endpoint suporta:
 A execução ocorre em um subprocesso isolado para segurança.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pyflow.core.models import RunRequest, RunResponse
 from pyflow.core.config import settings
 from pyflow.core.engine import execute_code
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
+from pyflow.api.deps import require_local_origin, require_token
+from pyflow.core.concurrency import AsyncSemaphore
 
 router = APIRouter()
 
+_run_semaphore = AsyncSemaphore(settings.PYFLOW_MAX_CONCURRENT_RUNS)
 
-@router.post("/run", response_model=RunResponse)
+
+@router.post("/run", response_model=RunResponse, dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def run_code_endpoint(req: RunRequest):
     """
     Executa código Python e retorna o resultado.
@@ -44,62 +49,79 @@ async def run_code_endpoint(req: RunRequest):
         - Se ai_explain_on_error=True e ocorrer erro, a IA é consultada.
         - Paths no traceback são sanitizados por segurança.
     """
-    request_id = generate_request_id()
+    # Atomic non-blocking acquire: rejects the extra request with 429 instead
+    # of queueing behind the lock (no TOCTOU race, no hang on bursts).
+    if not _run_semaphore.acquire_nowait():
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent executions",
+            headers={"Retry-After": "1"},
+        )
+    try:
+        request_id = generate_request_id()
+        logger.bind(request_id=request_id).info("run:start", code_chars=len(req.code))
 
-    # Defaults
-    timeout = req.timeout_seconds or settings.PYFLOW_DEFAULT_TIMEOUT_SECONDS
-    max_output = req.max_output_chars or settings.PYFLOW_MAX_OUTPUT_CHARS_DEFAULT
+        # Defaults
+        timeout = req.timeout_seconds or settings.PYFLOW_DEFAULT_TIMEOUT_SECONDS
+        max_output = req.max_output_chars or settings.PYFLOW_MAX_OUTPUT_CHARS_DEFAULT
 
-    # Hard limit on output chars to prevent memory issues
-    if max_output > settings.PYFLOW_MAX_OUTPUT_CHARS_MAX:
-        max_output = settings.PYFLOW_MAX_OUTPUT_CHARS_MAX
+        # Hard limit on output chars to prevent memory issues
+        if max_output > settings.PYFLOW_MAX_OUTPUT_CHARS_MAX:
+            max_output = settings.PYFLOW_MAX_OUTPUT_CHARS_MAX
 
-    # Verify code length (simple check)
-    if len(req.code) > settings.PYFLOW_MAX_CODE_CHARS:
-        # We could return 400, but spec says "Enforce... limit of size".
-        # RunResponse has "status". Let's use error status.
-        # But usually pre-validation is better.
-        # For now, let's treat as a quick execution error.
-        from pyflow.core.models import Diagnostics
-        return RunResponse(
-            status="error",
-            stdout="",
-            stderr=f"Code size exceeds limit ({settings.PYFLOW_MAX_CODE_CHARS} chars).",
-            exit_code=1,
-            execution_time_ms=0,
-            output_truncated=False,
-            diagnostics=Diagnostics(error_type="CodeTooLarge", message="O código é muito grande."),
-            request_id=request_id
+        # Verify code length (simple check)
+        if len(req.code) > settings.PYFLOW_MAX_CODE_CHARS:
+            # We could return 400, but spec says "Enforce... limit of size".
+            # RunResponse has "status". Let's use error status.
+            # But usually pre-validation is better.
+            # For now, let's treat as a quick execution error.
+            from pyflow.core.models import Diagnostics
+            return RunResponse(
+                status="error",
+                stdout="",
+                stderr=f"Code size exceeds limit ({settings.PYFLOW_MAX_CODE_CHARS} chars).",
+                exit_code=1,
+                execution_time_ms=0,
+                output_truncated=False,
+                diagnostics=Diagnostics(error_type="CodeTooLarge", message="O código é muito grande."),
+                request_id=request_id
+            )
+
+        # Execute
+        result = await execute_code(
+            request_id=request_id,
+            code=req.code,
+            stdin=req.stdin,
+            timeout_seconds=timeout,
+            max_output_chars=max_output,
+            include_raw_traceback=req.include_raw_traceback,
+            rich_output=req.rich_output
         )
 
-    # Execute
-    result = await execute_code(
-        request_id=request_id,
-        code=req.code,
-        stdin=req.stdin,
-        timeout_seconds=timeout,
-        max_output_chars=max_output
-    )
+        # Sanitize traceback path if strictly raw is not requested,
+        # but diagnostics.py already handles sanitization in diagnostics.context/message.
+        # result.stderr contains the full traceback.
+        # RF-06: "Deve sanitizar paths no traceback".
+        from pyflow.core.diagnostics import sanitize_path
+        result.stderr = sanitize_path(result.stderr)
 
-    # Sanitize traceback path if strictly raw is not requested,
-    # but diagnostics.py already handles sanitization in diagnostics.context/message.
-    # result.stderr contains the full traceback.
-    # RF-06: "Deve sanitizar paths no traceback".
-    from pyflow.core.diagnostics import sanitize_path
-    result.stderr = sanitize_path(result.stderr)
+        # AI Explanation
+        if req.ai_explain_on_error and result.status == "error" and result.diagnostics and req.ai_config:
+            try:
+                ai_help = await AIService.explain_error(
+                    code=req.code,
+                    stderr=result.stderr,
+                    diagnostics=result.diagnostics,
+                    config=req.ai_config
+                )
+                result.ai_error_help = ai_help
+            except Exception:
+                # Silent fail for IA as per spec
+                pass
 
-    # AI Explanation
-    if req.ai_explain_on_error and result.status == "error" and result.diagnostics and req.ai_config:
-        try:
-            ai_help = await AIService.explain_error(
-                code=req.code,
-                stderr=result.stderr,
-                diagnostics=result.diagnostics,
-                config=req.ai_config
-            )
-            result.ai_error_help = ai_help
-        except Exception:
-            # Silent fail for IA as per spec
-            pass
-
-    return result
+        logger.bind(request_id=request_id).info(
+            "run:done", status=result.status, duration_ms=result.execution_time_ms
+        )
+        return result
+    finally:
+        _run_semaphore.release()

@@ -6,13 +6,32 @@ export const usePyFlowStore = defineStore('pyflow', {
         code: '# Escreva seu código Python aqui\nprint("Olá, PyFlow local!")\n',
         output: null,
         isRunning: false,
+        consoleStream: '',
+        streamBuffer: '',
+        executionMode: 'server', // 'server' | 'browser'
 
         // Chat
         chatHistory: [],
         isChatting: false,
 
+        // Socratic Hint
+        hintText: '',
+        hintLevel: 0,
+        hintTarget: null,
+        isHinting: false,
+
+        // Challenges
+        challenges: [],
+        challengesError: '',
+        activeChallengeId: null,
+        challengeResult: null,
+        isChallengeRunning: false,
+        showChallengeHint: false,
+
         // Configuration
         activeConfigId: 'default',
+        apiToken: '',
+        apiOnline: null,
         configs: [
             {
                 id: 'default',
@@ -26,21 +45,127 @@ export const usePyFlowStore = defineStore('pyflow', {
 
         // UI State
         showSettings: false,
-        activeTab: 'console' // console, diagnostics, chat
+        activeTab: 'console', // console, diagnostics, chat, challenges
+
+        // Gamification
+        xp: 0,
+        streak: 0,
+        lastRunDay: '',
+        lastRunFailed: false
     }),
 
     actions: {
+        async fetchToken() {
+            if (process.client) {
+                try {
+                    const res = await $fetch('/api/token')
+                    this.apiToken = res.token || ''
+                } catch (e) {
+                    console.error('Failed to fetch API token:', e)
+                }
+            }
+        },
+
+        async refreshHealth() {
+            try {
+                await $fetch('/api/health', { headers: { 'X-PyFlow-Token': this.apiToken } })
+                this.apiOnline = true
+            } catch (e) {
+                this.apiOnline = false
+            }
+        },
+
+        async fetchChallenges() {
+            try {
+                const res = await $fetch('/api/challenges', { headers: this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {} })
+                this.challenges = res
+                this.challengesError = ''
+                if (res.length && !res.find(c => c.id === this.activeChallengeId)) {
+                    this.activeChallengeId = res[0].id
+                }
+            } catch (e) {
+                this.challengesError = 'Falha ao carregar desafios: ' + e.message
+            }
+        },
+
+        async runChallenge() {
+            if (!this.activeChallengeId) return
+            this.isChallengeRunning = true
+            this.challengeResult = null
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
+
+            try {
+                const res = await $fetch('/api/challenges/run', {
+                    method: 'POST',
+                    headers,
+                    body: {
+                        challenge_id: this.activeChallengeId,
+                        code: this.code
+                    }
+                })
+                this.challengeResult = res
+            } catch (err) {
+                this.challengeResult = { error: 'Falha na comunicação com o servidor.\n' + err.message }
+            } finally {
+                this.isChallengeRunning = false
+            }
+        },
+
         async runCode() {
+            if (this.executionMode === 'browser') return this.runCodeBrowser()
+            return this.runCodeStreaming()
+        },
+
+        async runCodeBrowser() {
             this.isRunning = true
             this.output = null
             this.activeTab = 'console'
+            try {
+                if (!this.pyodide) {
+                    const { loadPyodide } = await import('pyodide')
+                    this.pyodide = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/' })
+                }
+                let out = ''
+                const err = []
+                this.pyodide.setStdout({ batched: (s) => { out += s + '\n' } })
+                this.pyodide.setStderr({ batched: (s) => { err.push(s) } })
+                try {
+                    await this.pyodide.runPythonAsync(this.code)
+                    this.output = { status: 'success', stdout: out, stderr: err.join('\n'), execution_time_ms: 0 }
+                } catch (e) {
+                    this.output = {
+                        status: 'error',
+                        stdout: out,
+                        stderr: err.join('\n') + '\n' + (e.message || String(e)),
+                        execution_time_ms: 0,
+                        diagnostics: { error_type: e.name || 'Error', message: e.message || String(e) },
+                    }
+                }
+                this.trackRun(this.output.status === 'success')
+            } catch (err) {
+                this.output = { status: 'error', stdout: '', stderr: 'Falha ao carregar Pyodide: ' + err.message, execution_time_ms: 0 }
+                this.trackRun(false)
+            } finally {
+                this.isRunning = false
+            }
+        },
+
+        async runCodeStreaming() {
+            this.saveCodeToStorage()
+            this.isRunning = true
+            this.output = null
+            this.consoleStream = ''
+            this.streamBuffer = ''
+            this.activeTab = 'console'
 
             const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
 
             try {
-                const res = await $fetch('/api/run', {
+                const res = await fetch('/api/run/stream', {
                     method: 'POST',
-                    body: {
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         code: this.code,
                         ai_config: config ? {
                             provider: config.provider,
@@ -49,17 +174,56 @@ export const usePyFlowStore = defineStore('pyflow', {
                             base_url: config.base_url || undefined
                         } : undefined,
                         ai_explain_on_error: true,
-                        include_raw_traceback: true
-                    }
+                        include_raw_traceback: true,
+                        rich_output: true
+                    })
                 })
-                this.output = res
-
-                // Auto-switch to diagnostics if error and diagnostics exist
-                if (res.status === 'error' || res.diagnostics) {
-                    // Only switch if there is something interesting to show besides raw stderr
-                    if (res.diagnostics || res.ai_error_help) {
-                        this.activeTab = 'diagnostics'
+                if (!res.ok) throw new Error('HTTP ' + res.status)
+                const reader = res.body.getReader()
+                const decoder = new TextDecoder()
+                let receivedTerminal = false
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) break
+                    this.streamBuffer += decoder.decode(value, { stream: true })
+                    const lines = this.streamBuffer.split('\n')
+                    this.streamBuffer = lines.pop() || ''
+                    for (const line of lines) {
+                        if (!line.trim()) continue
+                        let evt
+                        try {
+                            evt = JSON.parse(line)
+                        } catch (e) {
+                            continue
+                        }
+                        if (evt.type === 'output') {
+                            this.consoleStream += evt.data
+                        } else if (evt.type === 'done') {
+                            receivedTerminal = true
+                            this.output = evt.result
+                            this.trackRun(evt.result.status === 'success')
+                            this.syncHintTarget()
+                            if (evt.result.diagnostics || evt.result.ai_error_help) this.activeTab = 'diagnostics'
+                        } else if (evt.type === 'error') {
+                            receivedTerminal = true
+                            this.output = {
+                                status: 'error',
+                                stderr: evt.message,
+                                stdout: '',
+                                execution_time_ms: 0
+                            }
+                            this.trackRun(false)
+                        }
                     }
+                }
+                if (!receivedTerminal && this.output === null) {
+                    this.output = {
+                        status: 'error',
+                        stdout: this.consoleStream,
+                        stderr: 'Stream encerrado sem resposta final (servidor caiu?).',
+                        execution_time_ms: 0
+                    }
+                    this.trackRun(false)
                 }
             } catch (err) {
                 this.output = {
@@ -68,8 +232,10 @@ export const usePyFlowStore = defineStore('pyflow', {
                     stdout: '',
                     execution_time_ms: 0
                 }
+                this.trackRun(false)
             } finally {
                 this.isRunning = false
+                this.syncHintTarget()
             }
         },
 
@@ -82,10 +248,12 @@ export const usePyFlowStore = defineStore('pyflow', {
             this.chatHistory.push({ role: 'user', content: message })
 
             const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
 
             try {
                 const res = await $fetch('/api/chat', {
                     method: 'POST',
+                    headers,
                     body: {
                         code: this.code,
                         user_message: message,
@@ -107,6 +275,73 @@ export const usePyFlowStore = defineStore('pyflow', {
             }
         },
 
+        syncHintTarget() {
+            const id = this.output?.request_id || null
+            if (id !== this.hintTarget) {
+                this.hintTarget = id
+                this.hintLevel = 0
+                this.hintText = ''
+            }
+        },
+
+        async requestHint(level) {
+            this.isHinting = true
+            const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
+
+            try {
+                const res = await $fetch('/api/hint', {
+                    method: 'POST',
+                    headers,
+                    body: {
+                        code: this.code,
+                        level,
+                        diagnostics: this.output?.diagnostics || undefined,
+                        ai_config: config ? {
+                            provider: config.provider,
+                            model_id: config.model_id,
+                            api_key: config.api_key || undefined,
+                            base_url: config.base_url || undefined
+                        } : undefined
+                    }
+                })
+
+                this.hintText = res.hint
+                this.hintLevel = level
+            } catch (err) {
+                this.hintText = 'Erro ao solicitar dica: ' + err.message
+            } finally {
+                this.isHinting = false
+            }
+        },
+
+        computeStats() {
+            return {
+                xp: this.xp,
+                streak: this.streak,
+                lastRunDay: this.lastRunDay
+            }
+        },
+
+        trackRun(success) {
+            const today = new Date().toISOString().slice(0, 10)
+            const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+            this.xp += 5
+            if (success && this.lastRunFailed) this.xp += 5
+
+            if (this.lastRunDay === today) {
+                // same day: streak unchanged
+            } else if (this.lastRunDay === yesterday) {
+                this.streak += 1
+            } else {
+                this.streak = 1
+            }
+            this.lastRunDay = today
+            this.lastRunFailed = !success
+            this.saveToStorage()
+        },
+
         saveConfig(config) {
             const idx = this.configs.findIndex(c => c.id === config.id)
             if (idx >= 0) {
@@ -125,10 +360,23 @@ export const usePyFlowStore = defineStore('pyflow', {
             this.saveToStorage()
         },
 
+        saveCodeToStorage: (() => {
+            let timer = null
+            return function () {
+                clearTimeout(timer)
+                timer = setTimeout(() => {
+                    if (process.client) localStorage.setItem('pyflow_code', this.code)
+                }, 500)
+            }
+        })(),
+
         saveToStorage() {
             if (process.client) {
                 localStorage.setItem('pyflow_configs', JSON.stringify(this.configs))
                 localStorage.setItem('pyflow_active_config', this.activeConfigId)
+                localStorage.setItem('pyflow_xp', String(this.xp))
+                localStorage.setItem('pyflow_streak', String(this.streak))
+                localStorage.setItem('pyflow_last_run_day', this.lastRunDay)
             }
         },
 
@@ -144,6 +392,16 @@ export const usePyFlowStore = defineStore('pyflow', {
                 if (active && this.configs.find(c => c.id === active)) {
                     this.activeConfigId = active
                 }
+                const savedCode = localStorage.getItem('pyflow_code')
+                if (savedCode !== null && savedCode !== '') {
+                    this.code = savedCode
+                }
+                const savedXp = localStorage.getItem('pyflow_xp')
+                if (savedXp !== null) this.xp = Number(savedXp) || 0
+                const savedStreak = localStorage.getItem('pyflow_streak')
+                if (savedStreak !== null) this.streak = Number(savedStreak) || 0
+                const savedLastRunDay = localStorage.getItem('pyflow_last_run_day')
+                if (savedLastRunDay !== null) this.lastRunDay = savedLastRunDay
             }
         }
     }
