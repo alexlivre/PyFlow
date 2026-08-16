@@ -16,11 +16,10 @@ A classe AIService é totalmente estática e não mantém estado,
 facilitando o uso assíncrono em múltiplas requisições.
 """
 
-import os
 import json
 import re
 import httpx
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from litellm import acompletion
 from tenacity import retry, stop_after_attempt, wait_fixed
 from loguru import logger
@@ -137,45 +136,6 @@ class AIService:
         # Format: 001 | code line
         return "\n".join([f"{i+1:03d} | {line}" for i, line in enumerate(lines)])
 
-    @staticmethod
-    def _prepare_env(config: AIConfig) -> Dict[str, str]:
-        """
-        Prepara variáveis de ambiente para chamada de IA.
-
-        Configura as chaves de API apropriadas baseado no provider
-        especificado na configuração.
-
-        Args:
-            config: Configuração do provedor de IA.
-
-        Returns:
-            Dict[str, str]: Dicionário de variáveis de ambiente.
-        """
-        env = os.environ.copy()
-        if config.api_key:
-            # LiteLLM procura chaves específicas ou OPENAI_API_KEY genérica
-            # Vamos setar chaves comuns baseadas no provider
-            p = config.provider.lower()
-            if p == "openrouter":
-                # OpenRouter usa a mesma variável que OpenAI pois usa endpoint compatível
-                env["OPENROUTER_API_KEY"] = config.api_key
-                env["OPENAI_API_KEY"] = config.api_key
-            elif "openai" in p:
-                env["OPENAI_API_KEY"] = config.api_key
-            elif "gemini" in p or "google" in p:
-                env["GEMINI_API_KEY"] = config.api_key
-            elif "anthropic" in p:
-                env["ANTHROPIC_API_KEY"] = config.api_key
-            # etc.
-            # Também podemos setar LITELLM_API_KEY se funcionar genericamente?
-            # Melhor abordagem: litellm aceita api_key como argumento em completion()
-
-        if config.base_url:
-            # Base URL é passado no completion
-            pass
-
-        return env
-
     @classmethod
     def _get_openrouter_base_url(cls) -> str:
         """
@@ -286,6 +246,79 @@ class AIService:
             raise
 
     @classmethod
+    async def _completion(
+        cls,
+        model: str,
+        messages: list[dict],
+        config: AIConfig,
+        *,
+        extra_headers: dict | None = None,
+        response_format: dict | None = None,
+        gpt5_input: str | None = None,
+    ) -> str:
+        """
+        Route a completion through the GPT-5 Responses API or LiteLLM.
+
+        GPT-5 models require the OpenAI Responses API, so `gpt5_input`
+        (a plain-text prompt assembled by the caller) is sent to
+        `_call_gpt5_responses_api`. All other models go through
+        LiteLLM's `acompletion` with `messages`.
+
+        The GPT-5 text building stays in each caller (`explain_error`,
+        `chat`) to preserve the exact prompt shape each one historically
+        built; `_completion` only decides which backend to use.
+
+        Args:
+            model: Model identifier for the provider.
+            messages: Chat messages for the LiteLLM path.
+            config: Provider configuration (api_key, base_url).
+            extra_headers: Extra headers for the LiteLLM request.
+            response_format: Response format for the LiteLLM request.
+            gpt5_input: Plain-text input for the GPT-5 Responses API.
+
+        Returns:
+            str: The model's text response.
+        """
+        if cls._is_gpt5_model(model):
+            base_url = config.base_url
+            if cls._is_openrouter(config):
+                base_url = config.base_url or cls._get_openrouter_base_url()
+            return await cls._call_gpt5_responses_api(
+                model=model,
+                input_text=gpt5_input,
+                api_key=config.api_key,
+                base_url=base_url,
+            )
+
+        base_url = config.base_url
+        if cls._is_openrouter(config):
+            base_url = config.base_url or cls._get_openrouter_base_url()
+            extra_headers = cls._get_openrouter_headers()
+
+        params = {
+            "model": model,
+            "messages": messages,
+            "api_key": config.api_key,
+            "base_url": base_url,
+            "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
+            "temperature": settings.PYFLOW_AI_TEMPERATURE,
+        }
+
+        # Force usage of OpenAI client protocol for OpenRouter to respect
+        # the base_url regardless of model prefix (e.g. anthropic/...)
+        if cls._is_openrouter(config):
+            params["custom_llm_provider"] = "openai"
+
+        if extra_headers:
+            params["extra_headers"] = extra_headers
+
+        if response_format:
+            params["response_format"] = response_format
+
+        response = await acompletion(**params)
+        return response.choices[0].message.content
+
+    @classmethod
     async def explain_error(cls, code: str, stderr: str, diagnostics: Diagnostics, config: AIConfig) -> Optional[AIErrorHelp]:
         """
         Gera uma explicação de IA para um erro de execução de código.
@@ -343,56 +376,19 @@ Por favor, forneça o diagnóstico JSON.
 """
         
         try:
-            # Check if this is a GPT-5 model - use Responses API
-            # Check if this is a GPT-5 model - use Responses API
-            if cls._is_gpt5_model(model):
-                base_url = config.base_url
-                if cls._is_openrouter(config):
-                    base_url = config.base_url or cls._get_openrouter_base_url()
-                    
-                full_input = f"{system_prompt}\n\n{user_content}"
-                content = await cls._call_gpt5_responses_api(
-                    model=model,
-                    input_text=full_input,
-                    api_key=config.api_key,
-                    base_url=base_url
-                )
-            else:
-                # Prepare base parameters
-                base_url = config.base_url
-                extra_headers = None
-                params = {}
-
-                # OpenRouter: set base_url and headers
-                if cls._is_openrouter(config):
-                    base_url = config.base_url or cls._get_openrouter_base_url()
-                    extra_headers = cls._get_openrouter_headers()
-                    # Force usage of OpenAI client protocol to respect the base_url
-                    # regardless of model prefix (e.g. anthropic/...)
-                    params["custom_llm_provider"] = "openai"
-
-                # Use standard LiteLLM for other models
-                params.update({
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
-                    ],
-                    "api_key": config.api_key,
-                    "base_url": base_url,
-                    "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
-                    "temperature": settings.PYFLOW_AI_TEMPERATURE,
-                })
-
-                # Add extra headers for OpenRouter
-                if extra_headers:
-                    params["extra_headers"] = extra_headers
-
-                # Add response_format for models that support it
-                params["response_format"] = {"type": "json_object"}
-
-                response = await acompletion(**params)
-                content = response.choices[0].message.content
+            # GPT-5 needs the system + user text concatenated exactly as
+            # before; _completion decides which backend to use.
+            full_input = f"{system_prompt}\n\n{user_content}"
+            content = await cls._completion(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                config=config,
+                response_format={"type": "json_object"},
+                gpt5_input=full_input,
+            )
             
             # Try to parse JSON, handling both clean JSON and markdown-wrapped JSON
             try:
@@ -459,82 +455,37 @@ Por favor, forneça o diagnóstico JSON.
             "Quando você escrever código nos exemplos, NÃO inclua esses números - escreva apenas código Python puro."
         )
         
-        # Check if this is a GPT-5 model - use Responses API
-        if cls._is_gpt5_model(model):
-            # Build input for Responses API
-            input_parts = [system_prompt]
-            
-            if code:
-                formatted_code = cls._format_code_with_lines(code)
-                input_parts.append(f"\nContexto do código atual (com linhas):\n```text\n{formatted_code}\n```")
-            
-            # Add history
-            for msg in history:
-                role_label = "Usuário" if msg.role == "user" else "Assistente"
-                input_parts.append(f"\n{role_label}: {msg.content}")
-            
-            input_parts.append(f"\nUsuário: {user_message}")
-            
-            full_input = "\n".join(input_parts)
-            
-            base_url = config.base_url
-            if cls._is_openrouter(config):
-                base_url = config.base_url or cls._get_openrouter_base_url()
-            
-            try:
-                return await cls._call_gpt5_responses_api(
-                    model=model,
-                    input_text=full_input,
-                    api_key=config.api_key,
-                    base_url=base_url
-                )
-            except Exception as e:
-                logger.error(f"Falha na IA GPT-5 (chat): {e}")
-                return f"Erro ao contatar IA: {str(e)}"
-        
-        # Standard LiteLLM flow for non-GPT-5 models
+        # Build messages and the plain-text input for the GPT-5 path.
+        # The caller keeps building gpt5_input so the exact prompt shape
+        # each model historically received is preserved.
         messages = [{"role": "system", "content": system_prompt}]
+        input_parts = [system_prompt]
 
         # Adicionar contexto do código se existir
         if code:
             formatted_code = cls._format_code_with_lines(code)
             messages.append({"role": "system", "content": f"Contexto do código atual (com linhas):\n```text\n{formatted_code}\n```"})
+            input_parts.append(f"\nContexto do código atual (com linhas):\n```text\n{formatted_code}\n```")
 
         # Histórico
         for msg in history:
             messages.append(msg.model_dump())
+            role_label = "Usuário" if msg.role == "user" else "Assistente"
+            input_parts.append(f"\n{role_label}: {msg.content}")
 
         messages.append({"role": "user", "content": user_message})
+        input_parts.append(f"\nUsuário: {user_message}")
 
-        # Prepare base parameters
-        base_url = config.base_url
-        extra_headers = None
-
-        # OpenRouter: set base_url and headers
-        if cls._is_openrouter(config):
-            base_url = config.base_url or cls._get_openrouter_base_url()
-            extra_headers = cls._get_openrouter_headers()
+        gpt5_input = "\n".join(input_parts) if cls._is_gpt5_model(model) else None
 
         try:
-            params = {
-                "model": model,
-                "messages": messages,
-                "api_key": config.api_key,
-                "base_url": base_url,
-                "max_tokens": settings.PYFLOW_AI_MAX_TOKENS,
-                "temperature": settings.PYFLOW_AI_TEMPERATURE
-            }
-            
-            # Force OpenAI protocol for OpenRouter
-            if cls._is_openrouter(config):
-                 params["custom_llm_provider"] = "openai"
-
-            # Add extra headers for OpenRouter
-            if extra_headers:
-                params["extra_headers"] = extra_headers
-
-            response = await acompletion(**params)
-            return response.choices[0].message.content
+            return await cls._completion(
+                model=model,
+                messages=messages,
+                config=config,
+                gpt5_input=gpt5_input,
+            )
         except Exception as e:
-            logger.error(f"Falha na IA (chat): {e}")
+            error_label = "Falha na IA GPT-5 (chat)" if gpt5_input else "Falha na IA (chat)"
+            logger.error(f"{error_label}: {e}")
             return f"Erro ao contatar IA: {str(e)}"
