@@ -314,6 +314,11 @@ async def execute_code(
         if status == "error":
             # Parse diagnostics
             diagnostics = parse_traceback_str(stderr_str, tmp_file.name, include_raw=include_raw_traceback)
+            # Never leak the server temp path in the traceback; replace it
+            # with a generic placeholder. Parsing happens first so the real
+            # filename can still locate the user's frame, and raw_traceback
+            # keeps its unsanitized-on-request contract.
+            stderr_str = stderr_str.replace(str(tmp_file), "<user_code>")
             
         return RunResponse(
             status=status,
