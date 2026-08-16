@@ -68,3 +68,40 @@ def test_run_with_local_origin_is_accepted():
         },
     )
     assert resp.status_code == 200
+
+
+def test_origin_with_localhost_subdomain_is_rejected():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Origin": "http://localhost.evil.com",
+        },
+    )
+    assert resp.status_code == 403
+
+
+def test_origin_with_ip_subdomain_is_rejected():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Origin": "http://127.0.0.1.evil.com",
+        },
+    )
+    assert resp.status_code == 403
+
+
+def test_is_local_origin_boundaries():
+    from pyflow.api.deps import is_local_origin
+
+    assert is_local_origin("http://localhost:3000") is True
+    assert is_local_origin("https://localhost:3000") is True
+    assert is_local_origin("http://127.0.0.1:3000") is True
+    assert is_local_origin("http://localhost.evil.com") is False
+    assert is_local_origin("http://127.0.0.1.evil.com") is False
+    assert is_local_origin("https://evil.example.com") is False
+    assert is_local_origin("null") is False
+    assert is_local_origin(None) is True

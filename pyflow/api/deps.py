@@ -1,17 +1,23 @@
 """Shared FastAPI dependencies for PyFlow."""
 
+from urllib.parse import urlsplit
+
 from fastapi import Header, HTTPException
 
 from pyflow.core.security import validate_token
 
-LOCAL_ORIGIN_PREFIXES = ("http://localhost", "http://127.0.0.1")
+LOCAL_ORIGIN_HOSTNAMES = ("localhost", "127.0.0.1", "::1")
 
 
 def is_local_origin(origin: str | None) -> bool:
     """True when the Origin header belongs to a local client."""
     if not origin:
         return True
-    return origin.lower().startswith(LOCAL_ORIGIN_PREFIXES)
+    try:
+        hostname = urlsplit(origin).hostname
+    except ValueError:
+        return False
+    return hostname in LOCAL_ORIGIN_HOSTNAMES
 
 
 async def require_token(x_pyflow_token: str | None = Header(default=None)) -> None:
