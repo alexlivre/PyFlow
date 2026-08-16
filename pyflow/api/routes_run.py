@@ -80,7 +80,8 @@ async def run_code_endpoint(req: RunRequest):
         stdin=req.stdin,
         timeout_seconds=timeout,
         max_output_chars=max_output,
-        include_raw_traceback=req.include_raw_traceback
+        include_raw_traceback=req.include_raw_traceback,
+        rich_output=req.rich_output
     )
 
     # Sanitize traceback path if strictly raw is not requested,

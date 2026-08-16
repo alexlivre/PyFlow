@@ -119,6 +119,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                     headers,
                     body: {
                         code: this.code,
+                        rich_output: true,
                         ai_config: config ? {
                             provider: config.provider,
                             model_id: config.model_id,

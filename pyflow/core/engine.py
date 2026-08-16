@@ -20,10 +20,12 @@ do usuário do ambiente do servidor.
 import asyncio
 import sys
 import os
+import json
+import site
 import psutil
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Awaitable, Callable, Optional, Tuple
+from typing import Awaitable, Callable, List, Optional, Tuple
 from loguru import logger
 import time
 
@@ -35,11 +37,34 @@ from pyflow.core.diagnostics import (
     create_timeout_diagnostics,
     create_output_limit_diagnostics,
 )
+from pyflow.core.runner_tpl import IMAGES_MARKER_PREFIX, build_rich_script
 
 
 def _sanitize_output(text: str, tmp_file: Path) -> str:
     """Replace the temp-file path in output with a generic placeholder."""
     return text.replace(str(tmp_file), "<user_code>")
+
+
+def _extract_images(stdout: str) -> Tuple[str, List[str]]:
+    """Pull the trailing PYFLOW_IMAGES marker out of stdout.
+
+    Returns the stdout without the marker line and the base64 PNGs listed
+    in the last valid marker. Malformed or missing markers leave the output
+    untouched and produce an empty list.
+    """
+    lines = stdout.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
+        if not line.startswith(IMAGES_MARKER_PREFIX):
+            continue
+        try:
+            images = json.loads(line[len(IMAGES_MARKER_PREFIX):])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(images, list) and all(isinstance(img, str) for img in images):
+            del lines[index]
+            return "\n".join(lines), images
+    return stdout, []
 
 
 async def _read_stream(
@@ -97,12 +122,21 @@ def _build_child_env() -> dict:
 
     A whitelist prevents user code from reading server secrets
     (API keys, tokens) and keeps the execution environment clean.
+
+    PYTHONUSERBASE is forwarded when the server interpreter has a user
+    site, so the child sees the same user-installed packages (e.g.
+    matplotlib) as the parent. It only exposes an import path, never an
+    environment secret.
     """
-    return {
+    env = {
         "PATH": os.environ.get("PATH", ""),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUNBUFFERED": "1",
     }
+    user_base = os.environ.get("PYTHONUSERBASE") or site.USER_BASE
+    if user_base and os.path.isdir(user_base):
+        env["PYTHONUSERBASE"] = user_base
+    return env
 
 
 def _kill_process_tree(pid: int):
@@ -141,7 +175,8 @@ async def execute_code_stream(
     timeout_seconds: int,
     max_output_chars: int,
     emit: Optional[Callable[[str, str], Awaitable[None]]] = None,
-    include_raw_traceback: bool = False
+    include_raw_traceback: bool = False,
+    rich_output: bool = False
 ) -> RunResponse:
     """
     Executa código Python em um subprocesso isolado.
@@ -160,6 +195,8 @@ async def execute_code_stream(
             cada chunk bruto lido de stdout/stderr.
         include_raw_traceback: Se o traceback completo (não sanitizado)
             deve ser incluído no diagnóstico.
+        rich_output: Se True, executa o código dentro do runner wrapper,
+            coletando figuras matplotlib abertas como imagens base64.
 
     Returns:
         RunResponse: Resultado da execução com status, saídas e diagnósticos.
@@ -186,6 +223,10 @@ async def execute_code_stream(
             diagnostics=create_blocked_diagnostics("O código contém input() mas nenhum stdin foi fornecido."),
             request_id=request_id
         )
+
+    # Rich output wraps the user code at module level (indent-sensitive);
+    # the wrapped script runs in the same isolated subprocess.
+    script = build_rich_script(code) if rich_output else code
 
     # 2. Stream Bridge
     # Chunks are pushed into a queue by the (sync) reader callbacks and
@@ -218,7 +259,7 @@ async def execute_code_stream(
 
     process = None
     try:
-        tmp_file.write_text(code, encoding="utf-8")
+        tmp_file.write_text(script, encoding="utf-8")
         
         # 3. Create Subprocess
         # Use -u for unbuffered output to catch prints immediately
@@ -377,6 +418,12 @@ async def execute_code_stream(
             if diagnostics and diagnostics.message:
                 diagnostics.message = _sanitize_output(diagnostics.message, tmp_file)
 
+        # Rich output: pull the base64 figures marker out before sanitizing,
+        # so the marker never reaches the visible stdout.
+        images = []
+        if rich_output:
+            stdout_str, images = _extract_images(stdout_str)
+
         # Never leak the server temp path in any branch; replace it with a
         # generic placeholder. Parsing happens first so the real filename can
         # still locate the user's frame, and raw_traceback keeps its
@@ -392,6 +439,7 @@ async def execute_code_stream(
             execution_time_ms=elapsed_ms,
             output_truncated=False,
             diagnostics=diagnostics,
+            images=images,
             request_id=request_id
         )
 
@@ -436,7 +484,8 @@ async def execute_code(
     stdin: Optional[str],
     timeout_seconds: int,
     max_output_chars: int,
-    include_raw_traceback: bool = False
+    include_raw_traceback: bool = False,
+    rich_output: bool = False
 ) -> RunResponse:
     """
     Executes Python code in an isolated subprocess without streaming.
@@ -451,6 +500,7 @@ async def execute_code(
         max_output_chars: Maximum number of output characters.
         include_raw_traceback: Whether to include the full (unsanitized)
             traceback in diagnostics.
+        rich_output: Whether to collect matplotlib figures as base64 images.
 
     Returns:
         RunResponse: Execution result with status, outputs and diagnostics.
@@ -462,4 +512,5 @@ async def execute_code(
         timeout_seconds=timeout_seconds,
         max_output_chars=max_output_chars,
         include_raw_traceback=include_raw_traceback,
+        rich_output=rich_output,
     )

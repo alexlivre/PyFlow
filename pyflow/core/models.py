@@ -103,6 +103,7 @@ class RunRequest(BaseModel):
     timeout_seconds: Optional[int] = None
     max_output_chars: Optional[int] = None
     include_raw_traceback: bool = False
+    rich_output: bool = False
     ai_explain_on_error: bool = False
     ai_config: Optional[AIConfig] = None
 
@@ -123,6 +124,7 @@ class RunResponse(BaseModel):
         output_truncated: Se a saída foi truncada por exceder limite.
         diagnostics: Informações de diagnóstico de erro (opcional).
         ai_error_help: Ajuda da IA sobre o erro (opcional).
+        images: Figuras matplotlib codificadas como PNGs em base64 (opcional).
         request_id: Identificador único da requisição.
     """
 
@@ -134,6 +136,7 @@ class RunResponse(BaseModel):
     output_truncated: bool
     diagnostics: Optional[Diagnostics] = None
     ai_error_help: Optional[AIErrorHelp] = None
+    images: List[str] = []
     request_id: str
 
 

@@ -189,6 +189,16 @@
               <div class="console-output">
                 <pre v-if="store.output.stdout" class="console-stdout whitespace-pre-wrap break-words m-0 mb-4">{{ store.output.stdout }}</pre>
                 <pre v-if="store.output.stderr" class="console-stderr whitespace-pre-wrap break-words m-0">{{ store.output.stderr }}</pre>
+                <div v-if="store.output.images && store.output.images.length" class="mt-4 space-y-4">
+                  <img
+                    v-for="(img, idx) in store.output.images"
+                    :key="idx"
+                    :src="'data:image/png;base64,' + img"
+                    alt="Matplotlib figure"
+                    class="rounded-lg border border-border"
+                    style="max-width: 100%; height: auto"
+                  />
+                </div>
               </div>
               
               <!-- Execution Stats -->

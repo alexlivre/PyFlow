@@ -1,6 +1,9 @@
 """Engine tests: environment isolation and execution controls."""
 
 import asyncio
+import base64
+
+import pytest
 
 from pyflow.core.engine import _build_child_env, execute_code
 
@@ -173,3 +176,94 @@ def test_error_message_does_not_leak_temp_path():
     assert result.diagnostics is not None
     assert "pyflow_tmp" not in result.diagnostics.message
     assert "<user_code>" in result.diagnostics.message
+
+
+def test_without_rich_output_images_empty():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_plain_rich",
+            code="print('hello')",
+            stdin=None,
+            timeout_seconds=5,
+            max_output_chars=1000,
+        )
+    )
+    assert result.status == "success"
+    assert result.images == []
+
+
+def test_rich_output_collects_matplotlib_figure_as_png():
+    pytest.importorskip("matplotlib")
+    result = asyncio.run(
+        execute_code(
+            request_id="req_rich_fig",
+            code="import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])\nplt.show()\n",
+            stdin=None,
+            timeout_seconds=30,
+            max_output_chars=100000,
+            rich_output=True,
+        )
+    )
+    assert result.status == "success"
+    assert len(result.images) == 1
+    assert base64.b64decode(result.images[0])[:4] == b"\x89PNG"
+    assert "PYFLOW_IMAGES" not in result.stdout
+
+
+def test_rich_output_collects_multiple_figures():
+    pytest.importorskip("matplotlib")
+    result = asyncio.run(
+        execute_code(
+            request_id="req_rich_figs2",
+            code=(
+                "import matplotlib.pyplot as plt\n"
+                "plt.figure(1)\n"
+                "plt.plot([1, 2, 3])\n"
+                "plt.figure(2)\n"
+                "plt.plot([3, 2, 1])\n"
+            ),
+            stdin=None,
+            timeout_seconds=30,
+            max_output_chars=100000,
+            rich_output=True,
+        )
+    )
+    assert result.status == "success"
+    assert len(result.images) == 2
+    assert all(base64.b64decode(img)[:4] == b"\x89PNG" for img in result.images)
+    assert "PYFLOW_IMAGES" not in result.stdout
+
+
+def test_rich_output_keeps_user_stdout_and_strips_marker():
+    pytest.importorskip("matplotlib")
+    result = asyncio.run(
+        execute_code(
+            request_id="req_rich_print",
+            code="import matplotlib.pyplot as plt\nprint('hello')\nplt.plot([1, 2, 3])\n",
+            stdin=None,
+            timeout_seconds=30,
+            max_output_chars=100000,
+            rich_output=True,
+        )
+    )
+    assert result.status == "success"
+    assert "hello" in result.stdout
+    assert "PYFLOW_IMAGES" not in result.stdout
+    assert len(result.images) == 1
+
+
+def test_rich_output_without_figures_has_no_images():
+    pytest.importorskip("matplotlib")
+    result = asyncio.run(
+        execute_code(
+            request_id="req_rich_nofig",
+            code="print('no figures here')",
+            stdin=None,
+            timeout_seconds=30,
+            max_output_chars=100000,
+            rich_output=True,
+        )
+    )
+    assert result.status == "success"
+    assert result.images == []
+    assert "PYFLOW_IMAGES" not in result.stdout
