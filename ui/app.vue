@@ -394,6 +394,8 @@
                 </button>
               </div>
 
+              <p v-if="store.challengesError" class="text-error text-xs">{{ store.challengesError }}</p>
+
               <div v-if="activeChallenge" class="diagnostic-card">
                 <div class="flex items-center justify-between gap-2">
                   <h3 class="font-semibold">{{ activeChallenge.title }}</h3>

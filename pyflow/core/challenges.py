@@ -14,8 +14,8 @@ Harness contract:
       student code and compare str(return value) against 'expected'.
     - The harness prints the marker line "PYFLOW_TEST_RESULT::<json>" to the
       real stdout as the LAST line; the JSON payload carries the results.
-    - If the student code raises (or the marker is missing), every test is
-      marked failed with the execution error as 'actual'.
+    - If the student code raises (or the marker is missing or malformed), every
+      test is marked failed with the execution error as 'actual'.
 """
 
 import io
@@ -24,12 +24,15 @@ import textwrap
 from pathlib import Path
 from typing import List, Optional
 
+from pydantic import ValidationError
+
 from pyflow.core.config import settings
 from pyflow.core.engine import execute_code
 from pyflow.core.models import ChallengeResult, ChallengeTestResult, RunResponse
 from pyflow.utils.ids import generate_request_id
 
 MARKER_PREFIX = "PYFLOW_TEST_RESULT::"
+INVALID_MARKER_MESSAGE = "Marcador de resultado inválido."
 CHALLENGES_DIR = Path(__file__).resolve().parent.parent / "data" / "challenges"
 
 _HARNESS_PROLOGUE = textwrap.dedent(
@@ -157,6 +160,16 @@ def _failure_reason(result: RunResponse) -> str:
     return "Erro desconhecido durante a execução."
 
 
+def _build_failed_tests(challenge: dict, reason: str) -> List[ChallengeTestResult]:
+    """Build one failed ChallengeTestResult per challenge test, all marked failed."""
+    return [
+        ChallengeTestResult(
+            name=test["name"], passed=False, stdout="", expected=test["expected"], actual=reason
+        )
+        for test in challenge["tests"]
+    ]
+
+
 async def run_challenge(code: str, challenge_id: str, timeout_seconds: int) -> ChallengeResult:
     """Execute the student code against a challenge's hidden tests."""
     challenge = load_challenge(challenge_id)
@@ -171,21 +184,66 @@ async def run_challenge(code: str, challenge_id: str, timeout_seconds: int) -> C
 
     payload = _extract_marker(result.stdout)
     if payload is None:
-        reason = _failure_reason(result)
-        tests = [
-            ChallengeTestResult(
-                name=test["name"], passed=False, stdout="", expected=test["expected"], actual=reason
-            )
-            for test in challenge["tests"]
-        ]
         return ChallengeResult(
-            challenge_id=challenge_id, tests=tests, passed_count=0, total_count=len(tests)
+            challenge_id=challenge_id,
+            tests=_build_failed_tests(challenge, _failure_reason(result)),
+            passed_count=0,
+            total_count=len(challenge["tests"]),
         )
 
-    tests = [ChallengeTestResult(**test) for test in payload["tests"]]
+    if not isinstance(payload, dict):
+        return ChallengeResult(
+            challenge_id=challenge_id,
+            tests=_build_failed_tests(challenge, INVALID_MARKER_MESSAGE),
+            passed_count=0,
+            total_count=len(challenge["tests"]),
+        )
+
+    tests_raw = payload.get("tests")
+    if not isinstance(tests_raw, list):
+        return ChallengeResult(
+            challenge_id=challenge_id,
+            tests=_build_failed_tests(challenge, INVALID_MARKER_MESSAGE),
+            passed_count=0,
+            total_count=len(challenge["tests"]),
+        )
+
+    tests = []
+    for test in tests_raw:
+        if not isinstance(test, dict):
+            tests.append(
+                ChallengeTestResult(
+                    name="teste inválido", passed=False, stdout="", expected="", actual=INVALID_MARKER_MESSAGE
+                )
+            )
+            continue
+        try:
+            tests.append(ChallengeTestResult(**test))
+        except ValidationError as exc:
+            tests.append(
+                ChallengeTestResult(
+                    name=str(test.get("name") or "teste inválido"),
+                    passed=False,
+                    stdout=str(test.get("stdout") or ""),
+                    expected=str(test.get("expected") or ""),
+                    actual=str(exc),
+                )
+            )
+
+    forged_id = payload.get("challenge_id", challenge_id)
+    if not isinstance(forged_id, str):
+        forged_id = challenge_id
+
+    passed_count = payload.get("passed_count")
+    total_count = payload.get("total_count")
+    if not isinstance(passed_count, int) or isinstance(passed_count, bool):
+        passed_count = sum(1 for t in tests if t.passed)
+    if not isinstance(total_count, int) or isinstance(total_count, bool):
+        total_count = len(tests)
+
     return ChallengeResult(
-        challenge_id=payload.get("challenge_id", challenge_id),
+        challenge_id=forged_id,
         tests=tests,
-        passed_count=payload.get("passed_count", sum(1 for t in tests if t.passed)),
-        total_count=payload.get("total_count", len(tests)),
+        passed_count=passed_count,
+        total_count=total_count,
     )

@@ -21,6 +21,7 @@ export const usePyFlowStore = defineStore('pyflow', {
 
         // Challenges
         challenges: [],
+        challengesError: '',
         activeChallengeId: null,
         challengeResult: null,
         isChallengeRunning: false,
@@ -71,11 +72,12 @@ export const usePyFlowStore = defineStore('pyflow', {
             try {
                 const res = await $fetch('/api/challenges', { headers: this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {} })
                 this.challenges = res
+                this.challengesError = ''
                 if (res.length && !res.find(c => c.id === this.activeChallengeId)) {
                     this.activeChallengeId = res[0].id
                 }
             } catch (e) {
-                console.error('Failed to fetch challenges:', e)
+                this.challengesError = 'Falha ao carregar desafios: ' + e.message
             }
         },
 
