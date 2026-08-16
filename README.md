@@ -147,6 +147,8 @@ Você pode configurar o PyFlow via variáveis de ambiente ou arquivo `.env` na r
 | `PYFLOW_MAX_OUTPUT_CHARS_MAX`    | Limite máximo absoluto de caracteres na saída          | `500000`      |
 | `PYFLOW_AI_MAX_TOKENS`           | Máximo de tokens para respostas da IA                  | `800`         |
 | `PYFLOW_AI_TEMPERATURE`          | Temperatura para geração da IA                         | `1.0`         |
+| `PYFLOW_AI_EXPLAINER_PROMPT`     | Persona/prompt do assistente de explicação de erros    | *(padrão interno)* |
+| `PYFLOW_AI_TUTOR_PROMPT`         | Persona/prompt do tutor de chat                        | *(padrão interno)* |
 | `OPENAI_API_KEY`                 | Chave de API da OpenAI (fallback)                      | `null`        |
 | `GEMINI_API_KEY`                 | Chave de API do Google Gemini (fallback)               | `null`        |
 | `ANTHROPIC_API_KEY`              | Chave de API da Anthropic (fallback)                   | `null`        |

@@ -376,16 +376,7 @@ class AIService:
         """
         model = cls._build_model_string(config)
         
-        system_prompt = (
-            "Você é um assistente de programação experiente ajudando um adulto iniciante (24 anos). "
-            "Seu tom deve ser profissional, claro e objetivo, sem ser infantil ou acadêmico demais. "
-            "Explique o erro ocorrido e como corrigir. "
-            "IMPORTANTE: Sempre mencione explicitamente o número da linha onde o erro ocorreu (se identificável) no resumo ou na correção. "
-            "O código fornecido tem números de linha (ex: '001 | código') apenas para sua referência. "
-            "Quando você sugerir código corrigido (suggested_code), NÃO inclua os números de linha - retorne apenas o código Python puro. "
-            "Responda EXCLUSIVAMENTE em JSON no formato: "
-            "{ \"summary\": \"...\", \"probable_fix\": \"...\", \"suggested_code\": \"...\" (opcional, código Python puro sem números de linha) }"
-        )
+        system_prompt = settings.PYFLOW_AI_EXPLAINER_PROMPT
         
         formatted_code = cls._format_code_with_lines(code)
         
@@ -473,20 +464,7 @@ Por favor, forneça o diagnóstico JSON.
         """
         model = cls._build_model_string(config)
 
-        system_prompt = (
-            "Você é um tutor de Python experiente ajudando um adulto iniciante. "
-            "Suas respostas DEVEM ser bem estruturadas usando Markdown para facilitar a leitura.\n\n"
-            "Diretrizes de Formatação:\n"
-            "- Use **negrito** para conceitos chave.\n"
-            "- Use blocos de código (```python) para exemplos.\n"
-            "- Use listas (bullet points) para passos ou explicações.\n"
-            "- Use títulos (###) para separar seções se a resposta for longa.\n"
-            "- Pule linhas entre parágrafos para tornar o texto arejado e legível.\n"
-            "- Seja direto, educado e encorajador.\n"
-            "- Se explicar código, explique linha a linha ou por blocos lógicos.\n\n"
-            "IMPORTANTE: O código do usuário pode ter números de linha (ex: '001 | código') apenas para referência. "
-            "Quando você escrever código nos exemplos, NÃO inclua esses números - escreva apenas código Python puro."
-        )
+        system_prompt = settings.PYFLOW_AI_TUTOR_PROMPT
         
         # Build messages and the plain-text input for the GPT-5 path.
         # The caller keeps building gpt5_input so the exact prompt shape

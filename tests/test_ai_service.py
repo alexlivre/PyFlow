@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from pyflow.core.ai_service import AIService
+from pyflow.core.config import settings
 from pyflow.core.models import AIConfig, ChatMessage
 
 
@@ -106,3 +107,25 @@ def test_completion_omits_response_format_for_unsupported_models():
     assert result == "ok"
     mock.assert_awaited_once()
     assert "response_format" not in mock.await_args.kwargs
+
+
+def test_chat_uses_tutor_prompt_from_settings():
+    cfg = AIConfig(provider="openai", model_id="gpt-4o", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "ok"
+    mock = AsyncMock(return_value=response)
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService.chat(
+                code=None,
+                user_message="oi",
+                history=[],
+                config=cfg,
+            )
+        )
+    assert result == "ok"
+    sent_messages = mock.await_args.kwargs["messages"]
+    assert sent_messages[0] == {
+        "role": "system",
+        "content": settings.PYFLOW_AI_TUTOR_PROMPT,
+    }
