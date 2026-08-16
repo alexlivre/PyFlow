@@ -6,6 +6,8 @@ export const usePyFlowStore = defineStore('pyflow', {
         code: '# Escreva seu código Python aqui\nprint("Olá, PyFlow local!")\n',
         output: null,
         isRunning: false,
+        consoleStream: '',
+        streamBuffer: '',
 
         // Chat
         chatHistory: [],
@@ -84,6 +86,72 @@ export const usePyFlowStore = defineStore('pyflow', {
                     // Only switch if there is something interesting to show besides raw stderr
                     if (res.diagnostics || res.ai_error_help) {
                         this.activeTab = 'diagnostics'
+                    }
+                }
+            } catch (err) {
+                this.output = {
+                    status: 'error',
+                    stderr: 'Falha na comunicação com o servidor.\n' + err.message,
+                    stdout: '',
+                    execution_time_ms: 0
+                }
+            } finally {
+                this.isRunning = false
+            }
+        },
+
+        async runCodeStreaming() {
+            this.saveCodeToStorage()
+            this.isRunning = true
+            this.output = null
+            this.consoleStream = ''
+            this.streamBuffer = ''
+            this.activeTab = 'console'
+
+            const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
+
+            try {
+                const res = await fetch('/api/run/stream', {
+                    method: 'POST',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: this.code,
+                        ai_config: config ? {
+                            provider: config.provider,
+                            model_id: config.model_id,
+                            api_key: config.api_key || undefined,
+                            base_url: config.base_url || undefined
+                        } : undefined,
+                        ai_explain_on_error: true,
+                        include_raw_traceback: true
+                    })
+                })
+                if (!res.ok) throw new Error('HTTP ' + res.status)
+                const reader = res.body.getReader()
+                const decoder = new TextDecoder()
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) break
+                    this.streamBuffer += decoder.decode(value, { stream: true })
+                    const lines = this.streamBuffer.split('\n')
+                    this.streamBuffer = lines.pop() || ''
+                    for (const line of lines) {
+                        if (!line.trim()) continue
+                        const evt = JSON.parse(line)
+                        if (evt.type === 'output') {
+                            this.consoleStream += evt.data
+                        } else if (evt.type === 'done') {
+                            this.output = evt.result
+                            if (evt.result.diagnostics || evt.result.ai_error_help) this.activeTab = 'diagnostics'
+                        } else if (evt.type === 'error') {
+                            this.output = {
+                                status: 'error',
+                                stderr: evt.message,
+                                stdout: '',
+                                execution_time_ms: 0
+                            }
+                        }
                     }
                 }
             } catch (err) {

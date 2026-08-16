@@ -23,7 +23,7 @@ import os
 import psutil
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Tuple, Optional
+from typing import Awaitable, Callable, Optional, Tuple
 from loguru import logger
 import time
 
@@ -42,21 +42,27 @@ def _sanitize_output(text: str, tmp_file: Path) -> str:
     return text.replace(str(tmp_file), "<user_code>")
 
 
-async def _read_stream(stream: asyncio.StreamReader, limit: int) -> Tuple[str, bool]:
+async def _read_stream(
+    stream: asyncio.StreamReader,
+    limit: int,
+    on_chunk: Optional[Callable[[str], None]] = None,
+) -> Tuple[str, bool]:
     """
-    Lê dados de um stream assíncrono até o limite especificado.
+    Reads chunks from an async stream up to a character limit.
 
-    Lê chunks do stream até que o limite de caracteres seja atingido
-    ou o stream seja fechado.
+    Each decoded chunk is passed to on_chunk (when provided) before the
+    limit check, so streaming consumers see the raw output as it arrives.
 
     Args:
-        stream: StreamReader assíncrono (stdout ou stderr).
-        limit: Limite máximo de caracteres a ler.
+        stream: Async StreamReader (stdout or stderr).
+        limit: Maximum number of characters to read.
+        on_chunk: Optional callback invoked with each decoded chunk
+            before the limit is applied.
 
     Returns:
-        Tuple contendo:
-            - str: Conteúdo lido do stream.
-            - bool: True se o conteúdo foi truncado por atingir o limite.
+        Tuple containing:
+            - str: Content read from the stream.
+            - bool: True if the content was truncated by the limit.
     """
     output = []
     total_chars = 0
@@ -69,6 +75,9 @@ async def _read_stream(stream: asyncio.StreamReader, limit: int) -> Tuple[str, b
             break
 
         decoded = chunk.decode("utf-8", errors="replace")
+        if on_chunk is not None:
+            on_chunk(decoded)
+
         chunk_len = len(decoded)
 
         if total_chars + chunk_len > limit:
@@ -120,12 +129,18 @@ def _kill_process_tree(pid: int):
         pass
 
 
-async def execute_code(
+async def _noop_emit(stream: str, data: str) -> None:
+    """Default emit callback that discards streamed chunks."""
+    return None
+
+
+async def execute_code_stream(
     request_id: str,
     code: str,
     stdin: Optional[str],
     timeout_seconds: int,
     max_output_chars: int,
+    emit: Optional[Callable[[str, str], Awaitable[None]]] = None,
     include_raw_traceback: bool = False
 ) -> RunResponse:
     """
@@ -141,6 +156,8 @@ async def execute_code(
         stdin: Entrada padrão para o código (opcional).
         timeout_seconds: Tempo máximo de execução em segundos.
         max_output_chars: Limite máximo de caracteres na saída.
+        emit: Callback assíncrono chamado com (nome do stream, chunk) para
+            cada chunk bruto lido de stdout/stderr.
         include_raw_traceback: Se o traceback completo (não sanitizado)
             deve ser incluído no diagnóstico.
 
@@ -170,10 +187,36 @@ async def execute_code(
             request_id=request_id
         )
 
-    # 2. Setup Temp File
+    # 2. Stream Bridge
+    # Chunks are pushed into a queue by the (sync) reader callbacks and
+    # drained by an async task that awaits the emit callback.
+    emit = emit or _noop_emit
+    chunk_queue = asyncio.Queue()
+
+    async def emit_loop() -> None:
+        while True:
+            item = await chunk_queue.get()
+            if item is None:
+                break
+            stream, data = item
+            await emit(stream, data)
+
+    emit_task = asyncio.create_task(emit_loop())
+
+    async def flush_emit() -> None:
+        chunk_queue.put_nowait(None)
+        await asyncio.gather(emit_task, return_exceptions=True)
+
+    def make_on_chunk(stream: str) -> Callable[[str], None]:
+        def on_chunk(data: str) -> None:
+            chunk_queue.put_nowait((stream, data))
+        return on_chunk
+
+    # 3. Setup Temp File
     tmp_dir = Path(gettempdir())
     tmp_file = tmp_dir / f"pyflow_tmp_{request_id}.py"
-    
+
+    process = None
     try:
         tmp_file.write_text(code, encoding="utf-8")
         
@@ -202,8 +245,12 @@ async def execute_code(
 
         # 4. Read Output with Limits
         # We need to run reading tasks concurrently
-        read_stdout_task = asyncio.create_task(_read_stream(process.stdout, max_output_chars))
-        read_stderr_task = asyncio.create_task(_read_stream(process.stderr, max_output_chars))
+        read_stdout_task = asyncio.create_task(
+            _read_stream(process.stdout, max_output_chars, on_chunk=make_on_chunk("stdout"))
+        )
+        read_stderr_task = asyncio.create_task(
+            _read_stream(process.stderr, max_output_chars, on_chunk=make_on_chunk("stderr"))
+        )
         
         wait_process_task = asyncio.create_task(process.wait())
         
@@ -240,6 +287,9 @@ async def execute_code(
             # Cancel read tasks
             read_stdout_task.cancel()
             read_stderr_task.cancel()
+
+            # Deliver any chunks read before cancellation, then stop the bridge.
+            await flush_emit()
 
             # If output was already over the limit, report truncation,
             # not timeout (the process was killed for flooding, not hanging).
@@ -288,6 +338,9 @@ async def execute_code(
              # Should not happen if process finished gracefully
              stdout_str, stdout_trunc = "", False
              stderr_str, stderr_trunc = "", False
+
+        # All reads are done: deliver remaining chunks, then stop the bridge.
+        await flush_emit()
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -345,6 +398,7 @@ async def execute_code(
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.exception("Internal execution error")
+        await flush_emit()
         return RunResponse(
             status="error",
             stdout="",
@@ -357,9 +411,55 @@ async def execute_code(
         )
         
     finally:
+        # A cancelled request (client disconnect) leaves the emit loop and the
+        # child process running; stop both before unwinding.
+        if not emit_task.done():
+            emit_task.cancel()
+            await asyncio.gather(emit_task, return_exceptions=True)
+        if process is not None and process.returncode is None:
+            try:
+                _kill_process_tree(process.pid)
+            except Exception:
+                pass
+
         # Cleanup
         if tmp_file.exists():
             try:
                 tmp_file.unlink()
             except Exception:
                 pass
+
+
+async def execute_code(
+    request_id: str,
+    code: str,
+    stdin: Optional[str],
+    timeout_seconds: int,
+    max_output_chars: int,
+    include_raw_traceback: bool = False
+) -> RunResponse:
+    """
+    Executes Python code in an isolated subprocess without streaming.
+
+    Thin wrapper over execute_code_stream with emit disabled.
+
+    Args:
+        request_id: Unique identifier for the request.
+        code: Python code to execute.
+        stdin: Standard input for the code (optional).
+        timeout_seconds: Maximum execution time in seconds.
+        max_output_chars: Maximum number of output characters.
+        include_raw_traceback: Whether to include the full (unsanitized)
+            traceback in diagnostics.
+
+    Returns:
+        RunResponse: Execution result with status, outputs and diagnostics.
+    """
+    return await execute_code_stream(
+        request_id=request_id,
+        code=code,
+        stdin=stdin,
+        timeout_seconds=timeout_seconds,
+        max_output_chars=max_output_chars,
+        include_raw_traceback=include_raw_traceback,
+    )

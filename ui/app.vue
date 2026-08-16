@@ -61,7 +61,7 @@
         <button 
           class="btn btn-primary run-button" 
           :disabled="store.isRunning" 
-          @click="store.runCode"
+          @click="store.runCodeStreaming"
           style="min-width: 120px;"
         >
           <template v-if="!store.isRunning">
@@ -169,7 +169,13 @@
         <div class="flex-1 overflow-hidden relative">
           <!-- Console Output -->
           <div v-if="store.activeTab === 'console'" class="h-full flex flex-col">
-            <div v-if="store.output" class="flex-1 overflow-auto p-5">
+            <!-- Live stream while running -->
+            <div v-if="store.isRunning" class="flex-1 overflow-auto p-5">
+              <div class="console-output">
+                <pre class="console-stdout whitespace-pre-wrap break-words m-0">{{ store.consoleStream }}</pre>
+              </div>
+            </div>
+            <div v-else-if="store.output" class="flex-1 overflow-auto p-5">
               <div class="console-output">
                 <pre v-if="store.output.stdout" class="console-stdout whitespace-pre-wrap break-words m-0 mb-4">{{ store.output.stdout }}</pre>
                 <pre v-if="store.output.stderr" class="console-stderr whitespace-pre-wrap break-words m-0">{{ store.output.stderr }}</pre>
@@ -667,7 +673,7 @@ const handleGlobalKeydown = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
     if (!store.isRunning) {
-      store.runCode()
+      store.runCodeStreaming()
     }
   }
 }

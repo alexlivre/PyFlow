@@ -27,6 +27,7 @@ export default defineNuxtConfig({
   nitro: {
     routeRules: {
       '/api/run': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/run' },
+      '/api/run/stream': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/run/stream' },
       '/api/chat': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/chat' },
       '/api/health': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/health' },
       '/api/token': { proxy: (process.env.NUXT_PUBLIC_API_BASE || 'http://127.0.0.1:8000') + '/auth/token' },

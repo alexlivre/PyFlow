@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models
+from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models, routes_stream
 from pyflow import __version__
 from pyflow.core.connection import register_cleanup
 
@@ -56,6 +56,7 @@ app.add_middleware(
 app.include_router(routes_auth.router)
 app.include_router(routes_health.router)
 app.include_router(routes_run.router)
+app.include_router(routes_stream.router)
 app.include_router(routes_chat.router)
 app.include_router(routes_models.router)
 
