@@ -13,6 +13,7 @@ export const usePyFlowStore = defineStore('pyflow', {
 
         // Configuration
         activeConfigId: 'default',
+        apiToken: '',
         configs: [
             {
                 id: 'default',
@@ -30,16 +31,29 @@ export const usePyFlowStore = defineStore('pyflow', {
     }),
 
     actions: {
+        async fetchToken() {
+            if (process.client) {
+                try {
+                    const res = await $fetch('/api/token')
+                    this.apiToken = res.token || ''
+                } catch (e) {
+                    console.error('Failed to fetch API token:', e)
+                }
+            }
+        },
+
         async runCode() {
             this.isRunning = true
             this.output = null
             this.activeTab = 'console'
 
             const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
 
             try {
                 const res = await $fetch('/api/run', {
                     method: 'POST',
+                    headers,
                     body: {
                         code: this.code,
                         ai_config: config ? {
@@ -82,10 +96,12 @@ export const usePyFlowStore = defineStore('pyflow', {
             this.chatHistory.push({ role: 'user', content: message })
 
             const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
 
             try {
                 const res = await $fetch('/api/chat', {
                     method: 'POST',
+                    headers,
                     body: {
                         code: this.code,
                         user_message: message,

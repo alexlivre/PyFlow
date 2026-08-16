@@ -105,3 +105,14 @@ def test_is_local_origin_boundaries():
     assert is_local_origin("https://evil.example.com") is False
     assert is_local_origin("null") is False
     assert is_local_origin(None) is True
+
+
+def test_token_route_rejects_evil_origin():
+    resp = client.get("/auth/token", headers={"Origin": "https://evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_token_route_works_locally():
+    resp = client.get("/auth/token", headers={"Origin": "http://localhost:3000"})
+    assert resp.status_code == 200
+    assert resp.json()["token"]

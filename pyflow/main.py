@@ -19,7 +19,7 @@ Exemplo de uso:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pyflow.api import routes_run, routes_chat, routes_health, routes_models
+from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models
 from pyflow import __version__
 from pyflow.core.connection import register_cleanup
 
@@ -39,6 +39,7 @@ app.add_middleware(
 )
 
 # Register routes
+app.include_router(routes_auth.router)
 app.include_router(routes_health.router)
 app.include_router(routes_run.router)
 app.include_router(routes_chat.router)

@@ -591,7 +591,8 @@ const fetchOpenRouterModels = async () => {
 
 onMounted(() => {
   store.loadFromStorage()
-  
+  store.fetchToken()
+
   // Add keyboard shortcut for running code
   window.addEventListener('keydown', handleGlobalKeydown)
 })
