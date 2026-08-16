@@ -6,6 +6,7 @@ import base64
 import pytest
 
 from pyflow.core.engine import _build_child_env, execute_code
+from pyflow.core.runner_tpl import RUNNER_TEMPLATE
 
 
 def test_build_child_env_whitelists_variables(monkeypatch):
@@ -265,5 +266,65 @@ def test_rich_output_without_figures_has_no_images():
         )
     )
     assert result.status == "success"
+    assert result.images == []
+    assert "PYFLOW_IMAGES" not in result.stdout
+
+
+def test_rich_output_degrades_when_matplotlib_unavailable(monkeypatch):
+    broken_template = RUNNER_TEMPLATE.replace(
+        'import matplotlib\nmatplotlib.use("Agg")\nimport matplotlib.pyplot as plt',
+        "import _nonexistent_module_xyz",
+    )
+    monkeypatch.setattr("pyflow.core.runner_tpl.RUNNER_TEMPLATE", broken_template)
+    result = asyncio.run(
+        execute_code(
+            request_id="req_rich_nompl",
+            code="print('sem matplotlib')",
+            stdin=None,
+            timeout_seconds=10,
+            max_output_chars=1000,
+            rich_output=True,
+        )
+    )
+    assert result.status == "success"
+    assert "sem matplotlib" in result.stdout
+    assert result.images == []
+    assert "PYFLOW_IMAGES" not in result.stdout
+
+
+def test_truncation_branch_extracts_images(monkeypatch):
+    monkeypatch.setattr(
+        "pyflow.core.engine._extract_images",
+        lambda stdout: ("stripped", ["fake"]),
+    )
+    result = asyncio.run(
+        execute_code(
+            request_id="req_trunc_rich",
+            code="print('x' * 5000)",
+            stdin=None,
+            timeout_seconds=10,
+            max_output_chars=1,
+            rich_output=True,
+        )
+    )
+    assert result.output_truncated is True
+    assert result.images == ["fake"]
+    assert "stripped" in result.stdout
+    assert "PYFLOW_IMAGES" not in result.stdout
+
+
+def test_truncation_does_not_leak_partial_images_marker():
+    pytest.importorskip("matplotlib")
+    result = asyncio.run(
+        execute_code(
+            request_id="req_trunc_marker",
+            code="import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])\n",
+            stdin=None,
+            timeout_seconds=30,
+            max_output_chars=40,
+            rich_output=True,
+        )
+    )
+    assert result.output_truncated is True
     assert result.images == []
     assert "PYFLOW_IMAGES" not in result.stdout

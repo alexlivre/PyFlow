@@ -46,25 +46,27 @@ def _sanitize_output(text: str, tmp_file: Path) -> str:
 
 
 def _extract_images(stdout: str) -> Tuple[str, List[str]]:
-    """Pull the trailing PYFLOW_IMAGES marker out of stdout.
+    """Pull PYFLOW_IMAGES marker lines out of stdout.
 
-    Returns the stdout without the marker line and the base64 PNGs listed
-    in the last valid marker. Malformed or missing markers leave the output
-    untouched and produce an empty list.
+    Returns the stdout without marker lines and the base64 PNGs listed in
+    the last valid marker. Incomplete markers (e.g. cut mid-payload by
+    output truncation) are stripped from the output too, but yield no
+    images. Missing markers leave the output untouched and produce an
+    empty list.
     """
-    lines = stdout.splitlines()
-    for index in range(len(lines) - 1, -1, -1):
-        line = lines[index]
+    images = []
+    kept_lines = []
+    for line in stdout.splitlines():
         if not line.startswith(IMAGES_MARKER_PREFIX):
+            kept_lines.append(line)
             continue
         try:
-            images = json.loads(line[len(IMAGES_MARKER_PREFIX):])
+            payload = json.loads(line[len(IMAGES_MARKER_PREFIX):])
         except json.JSONDecodeError:
             continue
-        if isinstance(images, list) and all(isinstance(img, str) for img in images):
-            del lines[index]
-            return "\n".join(lines), images
-    return stdout, []
+        if isinstance(payload, list) and all(isinstance(img, str) for img in payload):
+            images = payload
+    return "\n".join(kept_lines), images
 
 
 async def _read_stream(
@@ -394,6 +396,13 @@ async def execute_code_stream(
              if process.returncode is None:
                  _kill_process_tree(process.pid)
             
+             # Rich output: pull any complete or partial images marker out of
+             # the truncated streams, mirroring the finalize branch below.
+             images = []
+             if rich_output:
+                 stdout_str, images = _extract_images(stdout_str)
+                 stderr_str, _ = _extract_images(stderr_str)
+
              # Never leak the server temp path, even in a truncated chunk.
              stdout_str = _sanitize_output(stdout_str, tmp_file)
              stderr_str = _sanitize_output(stderr_str, tmp_file)
@@ -404,6 +413,7 @@ async def execute_code_stream(
                 exit_code=process.returncode,
                 execution_time_ms=elapsed_ms,
                 output_truncated=True,
+                images=images,
                 diagnostics=create_output_limit_diagnostics(),
                 request_id=request_id
             )

@@ -9,8 +9,10 @@ as the last line, prefixed by PYFLOW_IMAGES::
 
     PYFLOW_IMAGES::["<base64 png>", ...]
 
-If the runner itself fails (e.g. matplotlib is not installed), the import
-raises inside the script and the engine reports it as a normal error.
+If matplotlib cannot be imported (e.g. it is not installed), the wrapper
+degrades gracefully: the user code still runs at module level and only the
+figure-collection epilogue is skipped. The engine then reports the run
+with an empty images list instead of an error.
 
 The marker is written to the original stdout captured before the user code
 runs, and starts on its own line, so a user print without a trailing
@@ -24,26 +26,34 @@ IMAGES_MARKER_PREFIX = "PYFLOW_IMAGES::"
 
 RUNNER_TEMPLATE = textwrap.dedent(
     """\
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     import base64, io, json, sys
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        _matplotlib_available = True
+    except Exception:
+        # The image feature is optional: never let a missing/broken
+        # matplotlib take down the user's run.
+        _matplotlib_available = False
 
     _original_stdout = sys.stdout
 
     # <USER_CODE_PLACEHOLDER>
 
-    plt.ioff()
-    _images = []
-    for num in plt.get_fignums():
-        fig = plt.figure(num)
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        _images.append(base64.b64encode(buf.getvalue()).decode("ascii"))
-        plt.close(fig)
+    if _matplotlib_available:
+        plt.ioff()
+        _images = []
+        for num in plt.get_fignums():
+            fig = plt.figure(num)
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
+            _images.append(base64.b64encode(buf.getvalue()).decode("ascii"))
+            plt.close(fig)
 
-    if _images:
-        _original_stdout.write("\\n" + "PYFLOW_IMAGES::" + json.dumps(_images) + "\\n")
+        if _images:
+            _original_stdout.write("\\n" + "PYFLOW_IMAGES::" + json.dumps(_images) + "\\n")
     """
 )
 
