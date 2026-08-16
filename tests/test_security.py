@@ -9,7 +9,7 @@ client = TestClient(app)
 
 
 def test_run_without_token_returns_401():
-    resp = client.post("/run", json={"code": "print(1)"})
+    resp = client.post("/run", json={"code": "print(1)"}, headers={"Host": "localhost"})
     assert resp.status_code == 401
 
 
@@ -18,14 +18,14 @@ def test_run_with_token_returns_200():
     resp = client.post(
         "/run",
         json={"code": "print(1)", "ai_explain_on_error": False},
-        headers={"X-PyFlow-Token": token},
+        headers={"X-PyFlow-Token": token, "Host": "localhost"},
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
 
 
 def test_health_is_public():
-    assert client.get("/health").status_code == 200
+    assert client.get("/health", headers={"Host": "localhost"}).status_code == 200
 
 
 def test_token_validation_is_timing_safe():
@@ -53,6 +53,7 @@ def test_run_with_malicious_origin_is_rejected():
         headers={
             "X-PyFlow-Token": get_or_create_token(),
             "Origin": "https://evil.example.com",
+            "Host": "localhost",
         },
     )
     assert resp.status_code == 403
@@ -65,6 +66,7 @@ def test_run_with_local_origin_is_accepted():
         headers={
             "X-PyFlow-Token": get_or_create_token(),
             "Origin": "http://localhost:3000",
+            "Host": "localhost",
         },
     )
     assert resp.status_code == 200
@@ -77,6 +79,7 @@ def test_origin_with_localhost_subdomain_is_rejected():
         headers={
             "X-PyFlow-Token": get_or_create_token(),
             "Origin": "http://localhost.evil.com",
+            "Host": "localhost",
         },
     )
     assert resp.status_code == 403
@@ -89,6 +92,7 @@ def test_origin_with_ip_subdomain_is_rejected():
         headers={
             "X-PyFlow-Token": get_or_create_token(),
             "Origin": "http://127.0.0.1.evil.com",
+            "Host": "localhost",
         },
     )
     assert resp.status_code == 403
@@ -108,11 +112,27 @@ def test_is_local_origin_boundaries():
 
 
 def test_token_route_rejects_evil_origin():
-    resp = client.get("/auth/token", headers={"Origin": "https://evil.example.com"})
+    resp = client.get(
+        "/auth/token", headers={"Origin": "https://evil.example.com", "Host": "localhost"}
+    )
     assert resp.status_code == 403
 
 
 def test_token_route_works_locally():
-    resp = client.get("/auth/token", headers={"Origin": "http://localhost:3000"})
+    resp = client.get(
+        "/auth/token", headers={"Origin": "http://localhost:3000", "Host": "localhost"}
+    )
     assert resp.status_code == 200
     assert resp.json()["token"]
+
+
+def test_host_header_spoofing_is_rejected():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Host": "evil.example.com",
+        },
+    )
+    assert resp.status_code == 403
