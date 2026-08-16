@@ -145,6 +145,7 @@ Você pode configurar o PyFlow via variáveis de ambiente ou arquivo `.env` na r
 | `PYFLOW_MAX_CODE_CHARS`          | Limite máximo de caracteres do código                  | `100000`      |
 | `PYFLOW_MAX_OUTPUT_CHARS_DEFAULT`| Limite padrão de caracteres na saída                   | `100000`      |
 | `PYFLOW_MAX_OUTPUT_CHARS_MAX`    | Limite máximo absoluto de caracteres na saída          | `500000`      |
+| `PYFLOW_MAX_CONCURRENT_RUNS`     | Máximo de execuções simultâneas (429 quando excedido)  | `4`           |
 | `PYFLOW_AI_MAX_TOKENS`           | Máximo de tokens para respostas da IA                  | `800`         |
 | `PYFLOW_AI_TEMPERATURE`          | Temperatura para geração da IA                         | `1.0`         |
 | `PYFLOW_AI_EXPLAINER_PROMPT`     | Persona/prompt do assistente de explicação de erros    | *(padrão interno)* |

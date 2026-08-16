@@ -16,10 +16,11 @@ On internal failure an error event is emitted instead of done:
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from pyflow.api.deps import require_local_origin, require_token
+from pyflow.api.routes_run import _run_semaphore
 from pyflow.core.ai_service import AIService
 from pyflow.core.config import settings
 from pyflow.core.diagnostics import sanitize_path
@@ -33,6 +34,23 @@ router = APIRouter()
 @router.post("/run/stream", dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def run_stream_endpoint(req: RunRequest) -> StreamingResponse:
     """Execute Python code, streaming stdout/stderr chunks as NDJSON events."""
+    if _run_semaphore.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent executions",
+            headers={"Retry-After": "1"},
+        )
+    # The semaphore is acquired here, before the response starts, and released
+    # in the generator's finally block (which also runs on client disconnect).
+    await _run_semaphore.acquire()
+    try:
+        return StreamingResponse(event_source(req), media_type="application/x-ndjson")
+    except Exception:
+        _run_semaphore.release()
+        raise
+
+
+async def event_source(req: RunRequest):
     request_id = generate_request_id()
 
     # Defaults
@@ -43,7 +61,7 @@ async def run_stream_endpoint(req: RunRequest) -> StreamingResponse:
     if max_output > settings.PYFLOW_MAX_OUTPUT_CHARS_MAX:
         max_output = settings.PYFLOW_MAX_OUTPUT_CHARS_MAX
 
-    async def event_source():
+    try:
         events = asyncio.Queue()
         events.put_nowait(
             json.dumps({"type": "status", "status": "running"}, ensure_ascii=False) + "\n"
@@ -122,5 +140,6 @@ async def run_stream_endpoint(req: RunRequest) -> StreamingResponse:
             # Client disconnected: stop the runner so the child is reaped.
             runner_task.cancel()
             await asyncio.gather(runner_task, return_exceptions=True)
-
-    return StreamingResponse(event_source(), media_type="application/x-ndjson")
+    finally:
+        # Always release the slot when the stream ends, including disconnects.
+        _run_semaphore.release()
