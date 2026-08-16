@@ -122,31 +122,38 @@ async def test_run_rejects_second_concurrent_execution(single_run_slot):
 
 @pytest.mark.asyncio
 async def test_run_second_request_returns_429_without_hang(single_run_slot):
-    """Burst-hang regression: an extra request must get 429 promptly, not queue."""
-    sem = single_run_slot
+    """Burst regression: simultaneous requests get 429 promptly, never queue.
+
+    A sequential poll-then-fire test passes even on the old check-then-block
+    code: a request arriving after the slot is taken sees locked() and is
+    rejected instantly. Only a truly simultaneous burst exercises the
+    check-and-acquire race -- under blocking acquire, queued requests wait
+    out the full run (~1.5s) and blow the response-time bound below.
+    """
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = asyncio.create_task(
-            client.post(
+
+        async def fire(code, start):
+            resp = await client.post(
                 "/run",
-                json={"code": "import time; time.sleep(1)", "ai_explain_on_error": False},
+                json={"code": code, "ai_explain_on_error": False},
                 headers={**HEADERS, "Host": "localhost"},
             )
-        )
-        for _ in range(100):
-            if sem.locked():
-                break
-            await asyncio.sleep(0.01)
-        assert sem.locked()
+            return resp.status_code, time.monotonic() - start, resp.headers.get("Retry-After")
+
         start = time.monotonic()
-        second = await client.post(
-            "/run",
-            json={"code": "print(1)", "ai_explain_on_error": False},
-            headers={**HEADERS, "Host": "localhost"},
+        results = await asyncio.gather(
+            fire("import time; time.sleep(1.5)", start),
+            *(fire("print(1)", start) for _ in range(7)),
+            return_exceptions=True,
         )
-        elapsed = time.monotonic() - start
-        await first
-    assert second.status_code == 429
-    assert elapsed < 0.5
+        assert not any(isinstance(r, Exception) for r in results)
+
+    statuses, elapsed, retry_after = zip(*results)
+    assert sorted(statuses) == [200, 429, 429, 429, 429, 429, 429, 429]
+    for status, duration, header in zip(statuses, elapsed, retry_after):
+        if status == 429:
+            assert duration < 1.0
+            assert header == "1"
 
 
 @pytest.mark.asyncio
