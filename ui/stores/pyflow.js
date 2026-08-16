@@ -44,7 +44,13 @@ export const usePyFlowStore = defineStore('pyflow', {
 
         // UI State
         showSettings: false,
-        activeTab: 'console' // console, diagnostics, chat, challenges
+        activeTab: 'console', // console, diagnostics, chat, challenges
+
+        // Gamification
+        xp: 0,
+        streak: 0,
+        lastRunDay: '',
+        lastRunFailed: false
     }),
 
     actions: {
@@ -131,6 +137,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                     }
                 })
                 this.output = res
+                this.trackRun(res.status === 'success')
                 this.syncHintTarget()
 
                 // Auto-switch to diagnostics if error and diagnostics exist
@@ -147,6 +154,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                     stdout: '',
                     execution_time_ms: 0
                 }
+                this.trackRun(false)
             } finally {
                 this.isRunning = false
                 this.syncHintTarget()
@@ -203,6 +211,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                         } else if (evt.type === 'done') {
                             receivedTerminal = true
                             this.output = evt.result
+                            this.trackRun(evt.result.status === 'success')
                             this.syncHintTarget()
                             if (evt.result.diagnostics || evt.result.ai_error_help) this.activeTab = 'diagnostics'
                         } else if (evt.type === 'error') {
@@ -213,6 +222,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                                 stdout: '',
                                 execution_time_ms: 0
                             }
+                            this.trackRun(false)
                         }
                     }
                 }
@@ -223,6 +233,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                         stderr: 'Stream encerrado sem resposta final (servidor caiu?).',
                         execution_time_ms: 0
                     }
+                    this.trackRun(false)
                 }
             } catch (err) {
                 this.output = {
@@ -231,6 +242,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                     stdout: '',
                     execution_time_ms: 0
                 }
+                this.trackRun(false)
             } finally {
                 this.isRunning = false
                 this.syncHintTarget()
@@ -313,6 +325,33 @@ export const usePyFlowStore = defineStore('pyflow', {
             }
         },
 
+        computeStats() {
+            return {
+                xp: this.xp,
+                streak: this.streak,
+                lastRunDay: this.lastRunDay
+            }
+        },
+
+        trackRun(success) {
+            const today = new Date().toISOString().slice(0, 10)
+            const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+            this.xp += 5
+            if (success && this.lastRunFailed) this.xp += 5
+
+            if (this.lastRunDay === today) {
+                // same day: streak unchanged
+            } else if (this.lastRunDay === yesterday) {
+                this.streak += 1
+            } else {
+                this.streak = 1
+            }
+            this.lastRunDay = today
+            this.lastRunFailed = !success
+            this.saveToStorage()
+        },
+
         saveConfig(config) {
             const idx = this.configs.findIndex(c => c.id === config.id)
             if (idx >= 0) {
@@ -345,6 +384,9 @@ export const usePyFlowStore = defineStore('pyflow', {
             if (process.client) {
                 localStorage.setItem('pyflow_configs', JSON.stringify(this.configs))
                 localStorage.setItem('pyflow_active_config', this.activeConfigId)
+                localStorage.setItem('pyflow_xp', String(this.xp))
+                localStorage.setItem('pyflow_streak', String(this.streak))
+                localStorage.setItem('pyflow_last_run_day', this.lastRunDay)
             }
         },
 
@@ -364,6 +406,12 @@ export const usePyFlowStore = defineStore('pyflow', {
                 if (savedCode !== null && savedCode !== '') {
                     this.code = savedCode
                 }
+                const savedXp = localStorage.getItem('pyflow_xp')
+                if (savedXp !== null) this.xp = Number(savedXp) || 0
+                const savedStreak = localStorage.getItem('pyflow_streak')
+                if (savedStreak !== null) this.streak = Number(savedStreak) || 0
+                const savedLastRunDay = localStorage.getItem('pyflow_last_run_day')
+                if (savedLastRunDay !== null) this.lastRunDay = savedLastRunDay
             }
         }
     }

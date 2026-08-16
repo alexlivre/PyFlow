@@ -40,6 +40,12 @@
             <option v-for="c in store.configs" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
         </div>
+
+        <!-- Gamification Stats -->
+        <div class="flex items-center gap-2">
+          <span class="badge badge-primary" title="Experience points">⚡ {{ store.xp }} XP</span>
+          <span v-if="store.streak > 0" class="badge badge-warning" title="Consecutive days streak">🔥 {{ store.streak }} dias</span>
+        </div>
         
         <!-- Settings Button -->
         <button class="btn btn-icon btn-ghost" title="Settings" @click="store.showSettings = true">
