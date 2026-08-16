@@ -103,6 +103,18 @@ def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = Fal
                 found_frame_idx = i
                 break
 
+    # Fallback: some backends run the user code from <stdin> (e.g. docker
+    # mode pipes the script via `python -u -`), so the traceback never names
+    # the temp file. Locate the <stdin> frame instead so line diagnostics
+    # and editor highlighting still work.
+    if found_frame_idx == -1:
+        for i in range(len(lines) - 2, -1, -1):
+            m = FILE_LINE_REGEX.match(lines[i])
+            if m and "<stdin>" in m.group(1):
+                line_num = int(m.group(2))
+                found_frame_idx = i
+                break
+
     # Extract context if present (sometimes traceback shows the line and a caret)
     # Usually Python tracebacks show:
     #   File "...", line X, in ...

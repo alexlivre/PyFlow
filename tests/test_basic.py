@@ -74,6 +74,25 @@ SyntaxError: expected ':'
     assert "^" in d.context
 
 
+def test_parse_stdin_fallback_finds_line():
+    """
+    Testa o fallback de <stdin> para backends que rodam o código via stdin.
+
+    Backends como o docker executam o código do usuário por `python -u -`,
+    então o traceback referencia <stdin> em vez do arquivo temporário;
+    o parser deve localizar a linha mesmo assim.
+    """
+    stderr = """
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+    x = 1/0
+ZeroDivisionError: division by zero
+"""
+    d = parse_traceback_str(stderr, "pyflow_tmp_req_x.py")
+    assert d.error_type == "ZeroDivisionError"
+    assert d.line == 2
+
+
 def test_parse_with_raw_traceback():
     stderr = 'Traceback (most recent call last):\n  File "pyflow_tmp_1.py", line 1, in <module>\n    x\nNameError: name \'x\' is not defined\n'
     d = parse_traceback_str(stderr, "pyflow_tmp_1.py", include_raw=True)

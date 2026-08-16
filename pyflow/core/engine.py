@@ -265,6 +265,23 @@ async def execute_code_stream(
             request_id=request_id
         )
 
+    except NotImplementedError as e:
+        # Backends surface unsupported-feature constraints (e.g. docker mode
+        # v1 rejects stdin); return a clear error instead of masking it as an
+        # internal failure.
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        await flush_emit()
+        return RunResponse(
+            status="error",
+            stdout="",
+            stderr=str(e),
+            exit_code=255,
+            execution_time_ms=elapsed_ms,
+            output_truncated=False,
+            diagnostics=Diagnostics(error_type="BackendUnsupported", message=str(e)),
+            request_id=request_id
+        )
+
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.exception("Internal execution error")
