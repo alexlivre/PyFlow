@@ -26,3 +26,47 @@ def test_executed_code_cannot_read_server_env(monkeypatch):
     )
     assert result.status == "success"
     assert "sk-secret-should-not-leak" not in result.stdout
+
+
+def test_output_limit_returns_output_limit_status():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_trunc",
+            code="print('x' * 5000)",
+            stdin=None,
+            timeout_seconds=10,
+            max_output_chars=100,
+        )
+    )
+    assert result.status == "error"
+    assert result.output_truncated is True
+    assert result.diagnostics.error_type == "OutputLimitExceeded"
+
+
+def test_timeout_kills_process():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_timeout",
+            code="import time; time.sleep(5)",
+            stdin=None,
+            timeout_seconds=1,
+            max_output_chars=1000,
+        )
+    )
+    assert result.status == "timeout"
+    assert result.diagnostics.error_type == "Timeout"
+
+
+def test_output_limit_with_blocked_process_returns_truncation_status():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_trunc_blocked",
+            code="for _ in range(100000): print('x' * 100)",
+            stdin=None,
+            timeout_seconds=2,
+            max_output_chars=100,
+        )
+    )
+    assert result.status == "error"
+    assert result.output_truncated is True
+    assert result.diagnostics.error_type == "OutputLimitExceeded"

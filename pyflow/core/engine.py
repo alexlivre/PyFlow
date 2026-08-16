@@ -204,27 +204,65 @@ async def execute_code(
         wait_process_task = asyncio.create_task(process.wait())
         
         # 5. Handle Timeout
-        # We wait for either process to finish OR timeout
+        # Wait until the process finishes AND both reads complete, or timeout.
+        # A read task may complete early when the output limit is hit while
+        # the process keeps running; that must be reported as truncation,
+        # not as a timeout.
         done, pending = await asyncio.wait(
             [wait_process_task, read_stdout_task, read_stderr_task],
             timeout=timeout_seconds,
-            return_when=asyncio.FIRST_EXCEPTION # Wait for all unless error? No, we needed timeout.
-            # actually asyncio.wait with timeout doesn't kill tasks automatically.
+            return_when=asyncio.ALL_COMPLETED,
         )
         
         # Check if process is still running (Timeout case)
         if process.returncode is None and not wait_process_task.done():
             _kill_process_tree(process.pid)
-            try: 
-                await process.wait() 
-            except: 
+
+            # Close the pipe transports so process.wait() can resolve.
+            # On Windows a pipe with no pending read/write never reports
+            # disconnection, so the exit waiters would never be woken up.
+            transport = process._transport
+            if transport is not None:
+                for fd in (0, 1, 2):
+                    pipe = transport.get_pipe_transport(fd)
+                    if pipe is not None:
+                        pipe.close()
+
+            try:
+                await process.wait()
+            except Exception:
                 pass
-            
+
             # Cancel read tasks
             read_stdout_task.cancel()
             read_stderr_task.cancel()
-            
+
+            # If output was already over the limit, report truncation,
+            # not timeout (the process was killed for flooding, not hanging).
+            stdout_trunc = (
+                read_stdout_task.done()
+                and not read_stdout_task.cancelled()
+                and read_stdout_task.result()[1]
+            )
+            stderr_trunc = (
+                read_stderr_task.done()
+                and not read_stderr_task.cancelled()
+                and read_stderr_task.result()[1]
+            )
+
             elapsed_ms = int((time.time() - start_time) * 1000)
+            if stdout_trunc or stderr_trunc:
+                return RunResponse(
+                    status="error",
+                    stdout="",
+                    stderr="Output limit exceeded; process terminated.",
+                    exit_code=None,
+                    execution_time_ms=elapsed_ms,
+                    output_truncated=True,
+                    diagnostics=create_output_limit_diagnostics(),
+                    request_id=request_id,
+                )
+
             return RunResponse(
                 status="timeout",
                 stdout="",
