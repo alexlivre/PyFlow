@@ -14,6 +14,7 @@ E retorna a resposta da IA junto com o histórico atualizado.
 """
 
 from fastapi import APIRouter, Depends
+from loguru import logger
 from pyflow.core.models import ChatRequest, ChatResponse, ChatMessage
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
@@ -40,6 +41,7 @@ async def chat_endpoint(req: ChatRequest):
         Se ai_config não for fornecido, retorna mensagem de erro.
     """
     request_id = generate_request_id()
+    logger.bind(request_id=request_id).info("chat:start", code_chars=len(req.code or ""))
 
     # Validate that ai_config is provided
     if not req.ai_config:
@@ -57,6 +59,7 @@ async def chat_endpoint(req: ChatRequest):
     new_history.append(ChatMessage(role="user", content=req.user_message))
     new_history.append(ChatMessage(role="assistant", content=reply_text))
 
+    logger.bind(request_id=request_id).info("chat:done", message_chars=len(reply_text))
     return ChatResponse(
         reply=reply_text,
         history=new_history,

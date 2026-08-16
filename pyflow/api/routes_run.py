@@ -15,6 +15,7 @@ A execução ocorre em um subprocesso isolado para segurança.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pyflow.core.models import RunRequest, RunResponse
 from pyflow.core.config import settings
 from pyflow.core.engine import execute_code
@@ -58,6 +59,7 @@ async def run_code_endpoint(req: RunRequest):
         )
     try:
         request_id = generate_request_id()
+        logger.bind(request_id=request_id).info("run:start", code_chars=len(req.code))
 
         # Defaults
         timeout = req.timeout_seconds or settings.PYFLOW_DEFAULT_TIMEOUT_SECONDS
@@ -117,6 +119,9 @@ async def run_code_endpoint(req: RunRequest):
                 # Silent fail for IA as per spec
                 pass
 
+        logger.bind(request_id=request_id).info(
+            "run:done", status=result.status, duration_ms=result.execution_time_ms
+        )
         return result
     finally:
         _run_semaphore.release()

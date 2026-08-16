@@ -46,6 +46,7 @@ class Settings(BaseSettings):
         GEMINI_API_KEY: Chave de API do Google Gemini (opcional).
         ANTHROPIC_API_KEY: Chave de API da Anthropic (opcional).
         DEEPSEEK_API_KEY: Chave de API do DeepSeek (opcional).
+        PYFLOW_LOG_JSON: Habilita logs estruturados JSON (logs/pyflow-*.json).
     """
 
     # Rede / Servidor
@@ -101,6 +102,9 @@ class Settings(BaseSettings):
 
     # Segurança
     PYFLOW_API_TOKEN: Optional[str] = None
+
+    # Logging
+    PYFLOW_LOG_JSON: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

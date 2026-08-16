@@ -18,6 +18,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from loguru import logger
 
 from pyflow.api.deps import require_local_origin, require_token
 from pyflow.api.routes_run import _run_semaphore
@@ -53,6 +54,7 @@ async def run_stream_endpoint(req: RunRequest) -> StreamingResponse:
 
 async def event_source(req: RunRequest):
     request_id = generate_request_id()
+    logger.bind(request_id=request_id).info("run:start", code_chars=len(req.code))
 
     # Defaults
     timeout = req.timeout_seconds or settings.PYFLOW_DEFAULT_TIMEOUT_SECONDS
@@ -116,6 +118,9 @@ async def event_source(req: RunRequest):
                         # Silent fail for AI as per spec
                         pass
 
+                logger.bind(request_id=request_id).info(
+                    "run:done", status=result.status, duration_ms=result.execution_time_ms
+                )
                 events.put_nowait(
                     json.dumps(
                         {"type": "done", "result": json.loads(result.model_dump_json())},

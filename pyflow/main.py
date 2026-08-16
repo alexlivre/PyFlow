@@ -25,9 +25,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pyflow.api import routes_auth, routes_run, routes_chat, routes_health, routes_models, routes_stream, routes_hint, routes_challenges
 from pyflow import __version__
+from pyflow.core.config import settings
 from pyflow.core.connection import register_cleanup
+from pyflow.core.logging_config import configure_logging
 
 ALLOWED_HOST_SUFFIXES = ("localhost", "127.0.0.1", "pyflow-api", "pyflow-ui", "0.0.0.0", "::1")
+
+# Structured JSON logs when PYFLOW_LOG_JSON is enabled; never crashes the app.
+configure_logging(settings)
 
 app = FastAPI(
     title="PyFlow API",
