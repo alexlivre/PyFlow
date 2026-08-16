@@ -4,7 +4,14 @@
   <strong>Versão 2.1.0</strong>
 </p>
 
-**PyFlow** é uma API local robusta construída em **FastAPI** para execução segura de código Python em subprocessos isolados, com captura de saída, diagnósticos de erros estruturados e integração com múltiplos provedores de Inteligência Artificial (OpenAI, Gemini, Anthropic, OpenRouter, DeepSeek, Ollama) para explicação de erros e chat contextual.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.137-teal)](https://fastapi.tiangolo.com)
+[![Docker](https://img.shields.io/badge/Docker-compose-2496ED)](https://www.docker.com)
+[![Release](https://img.shields.io/github/v/release/alexlivre/PyFlow)](https://github.com/alexlivre/PyFlow/releases)
+[![CI](https://github.com/alexlivre/PyFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/alexlivre/PyFlow/actions)
+
+**PyFlow** é uma API local robusta construída em **FastAPI** para execução segura de código Python em subprocessos isolados, com captura de saída, diagnósticos de erros estruturados e integração com múltiplos provedores de Inteligência Artificial (OpenAI, Gemini, Anthropic, OpenRouter, DeepSeek, Ollama, MiniMax, OpenCode Zen/Go) para explicação de erros e chat contextual.
 
 Este documento é o **guia definitivo** para desenvolvedores que desejam consumir a API do PyFlow, criar suas próprias interfaces gráficas (UIs), ou simplesmente entender todas as suas funcionalidades em detalhes.
 
@@ -43,6 +50,10 @@ Este documento é o **guia definitivo** para desenvolvedores que desejam consumi
     *   [Status `timeout`](#status-timeout)
 12. [Estrutura do Projeto](#-estrutura-do-projeto)
 13. [Referência Rápida](#-referência-rápida)
+14. [🛠️ Built with](#️-built-with)
+15. [🙏 Agradecimentos](#-agradecimentos)
+16. [🔗 Links](#-links)
+17. [📝 Licença](#-licen%C3%A7a)
 
 ---
 
@@ -1147,10 +1158,42 @@ curl -X POST http://localhost:8000/chat \
 
 ---
 
-## 📝 Licença
+## 🛠️ Built with
 
-Este projeto é de uso interno e educacional.
+- **[FastAPI](https://fastapi.tiangolo.com)** + **[Uvicorn](https://www.uvicorn.org)** — API assíncrona
+- **[LiteLLM](https://github.com/BerriAI/litellm)** — abstração multi-provedor de IA
+- **[Nuxt 3](https://nuxt.com)** + **[Vue 3](https://vuejs.org)** + **[Pinia](https://pinia.vuejs.org)** — interface web
+- **[CodeMirror 6](https://codemirror.net)** — editor de código
+- **[Pyodide](https://pyodide.org)** — execução Python no navegador (WebAssembly)
+- **[Docker](https://www.docker.com)** — sandbox de execução e deploy
+- **[Typer](https://typer.tiangolo.com)** — CLI
+- **[pytest](https://pytest.org)** — testes
+
+## 🙏 Agradecimentos
+
+- [FastAPI](https://fastapi.tiangolo.com) — o framework que torna a API simples e robusta
+- [LiteLLM](https://github.com/BerriAI/litellm) — um único SDK para dezenas de provedores de IA
+- [Nuxt](https://nuxt.com) / [Vue](https://vuejs.org) — a UI
+- [CodeMirror](https://codemirror.net) — o editor
+- [Pyodide](https://pyodide.org) — Python no navegador
+- [Judge0](https://github.com/judge0/judge0) — inspiração para a arquitetura de sandbox dos desafios
+- [OpenCode](https://github.com/anomalyco/opencode) — a ferramenta de IA usada para construir, testar e manter este projeto
+
+## 🔗 Links
+
+- **Código-fonte:** [github.com/alexlivre/PyFlow](https://github.com/alexlivre/PyFlow)
+- **Releases:** [GitHub Releases](https://github.com/alexlivre/PyFlow/releases)
+- **Issue tracker:** [GitHub Issues](https://github.com/alexlivre/PyFlow/issues)
+- **Licença:** [MIT](./LICENSE)
 
 ---
 
-**Desenvolvido com ❤️ para tornar a programação mais acessível.**
+## 📝 Licença
+
+[MIT](./LICENSE) © 2026 [Alex Santos](https://alexlivre.dev/) ([@alexlivre](https://github.com/alexlivre))
+
+---
+
+<p align="center">
+  Made with care for the Python learning community.
+</p>
