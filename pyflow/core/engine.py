@@ -79,6 +79,19 @@ async def _read_stream(stream: asyncio.StreamReader, limit: int) -> Tuple[str, b
     return "".join(output), truncated
 
 
+def _build_child_env() -> dict:
+    """Build a minimal env for the child process.
+
+    A whitelist prevents user code from reading server secrets
+    (API keys, tokens) and keeps the execution environment clean.
+    """
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+    }
+
+
 def _kill_process_tree(pid: int):
     """
     Termina um processo e todos os seus processos filhos.
@@ -161,16 +174,13 @@ async def execute_code(
         # Use -u for unbuffered output to catch prints immediately
         # Use sys.executable to ensure we use the same python interpreter (or standard one)
         # Spec says: "Rodar snippets Python". Localhost environment.
-        env_vars = os.environ.copy()
-        env_vars["PYTHONIOENCODING"] = "utf-8"
-        
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-u", str(tmp_file),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(tmp_dir), # Run in temp dir to avoid polluting project dir
-            env=env_vars
+            env=_build_child_env()
         )
         
         # Write stdin if provided
