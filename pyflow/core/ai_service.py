@@ -93,6 +93,46 @@ class AIService:
         return False
 
     @staticmethod
+    def _is_opencode(config: AIConfig) -> bool:
+        """
+        Verifica se a configuração usa OpenCode Zen.
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            bool: True se o provider for 'opencode'.
+        """
+        return config.provider.lower() == "opencode"
+
+    @staticmethod
+    def _is_opencode_go(config: AIConfig) -> bool:
+        """
+        Verifica se a configuração usa OpenCode Go.
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            bool: True se o provider for 'opencode-go'.
+        """
+        return config.provider.lower() == "opencode-go"
+
+    @staticmethod
+    def _opencode_endpoint_kind(model_id: str) -> str:
+        """Map an OpenCode Zen/Go model id to its API protocol.
+
+        gpt-5* models use the Responses API, Claude/Qwen/MiniMax-M* use the
+        Anthropic Messages API, everything else uses OpenAI-compatible chat.
+        """
+        lowered = model_id.lower()
+        if "gpt-5" in lowered:
+            return "responses"
+        if lowered.startswith(("claude-", "qwen")) or "minimax-m" in lowered:
+            return "messages"
+        return "chat"
+
+    @staticmethod
     def _build_model_string(config: AIConfig) -> str:
         """
         Constrói a string de modelo para LiteLLM.
@@ -131,6 +171,12 @@ class AIService:
 
         # Caso especial OpenAI: litellm aceita "gpt-4" direto, mas "openai/gpt-4" também funciona.
         # Vamos prefixar sempre para clareza, exceto se provider for "custom" ou algo assim.
+        # MiniMax: LiteLLM native provider
+        if config.provider.lower() == "minimax":
+            return f"minimax/{config.model_id}"
+        # OpenCode Zen/Go: raw gateway ids, protocol chosen by endpoint kind
+        if config.provider.lower() in ("opencode", "opencode-go"):
+            return config.model_id
         return f"{config.provider}/{config.model_id}"
 
     @staticmethod
@@ -162,6 +208,48 @@ class AIService:
             str: URL base da API do OpenRouter.
         """
         return "https://openrouter.ai/api/v1"
+
+    @classmethod
+    def _get_opencode_base_url(cls) -> str:
+        """
+        Retorna a URL base do OpenCode Zen.
+
+        Returns:
+            str: URL base da API do OpenCode Zen.
+        """
+        return "https://opencode.ai/zen/v1"
+
+    @classmethod
+    def _get_opencode_go_base_url(cls) -> str:
+        """
+        Retorna a URL base do OpenCode Go.
+
+        Returns:
+            str: URL base da API do OpenCode Go.
+        """
+        return "https://opencode.ai/zen/go/v1"
+
+    @classmethod
+    def _resolve_base_url(cls, config: AIConfig) -> Optional[str]:
+        """
+        Resolve a URL base efetiva para o provider configurado.
+
+        Usa a base_url fornecida pelo usuário ou o padrão do
+        provedor (OpenRouter, OpenCode Zen, OpenCode Go).
+
+        Args:
+            config: Configuração do provedor de IA.
+
+        Returns:
+            Optional[str]: URL base efetiva ou None.
+        """
+        if cls._is_openrouter(config):
+            return config.base_url or cls._get_openrouter_base_url()
+        if cls._is_opencode(config):
+            return config.base_url or cls._get_opencode_base_url()
+        if cls._is_opencode_go(config):
+            return config.base_url or cls._get_opencode_go_base_url()
+        return config.base_url
 
     @classmethod
     def _get_openrouter_headers(cls) -> Dict[str, str]:
@@ -297,20 +385,14 @@ class AIService:
             str: The model's text response.
         """
         if cls._is_gpt5_model(model):
-            base_url = config.base_url
-            if cls._is_openrouter(config):
-                base_url = config.base_url or cls._get_openrouter_base_url()
             return await cls._call_gpt5_responses_api(
                 model=model,
                 input_text=gpt5_input,
                 api_key=config.api_key,
-                base_url=base_url,
+                base_url=cls._resolve_base_url(config),
             )
 
-        base_url = config.base_url
-        if cls._is_openrouter(config):
-            base_url = config.base_url or cls._get_openrouter_base_url()
-            extra_headers = cls._get_openrouter_headers()
+        base_url = cls._resolve_base_url(config)
 
         params = {
             "model": model,
@@ -325,6 +407,16 @@ class AIService:
         # the base_url regardless of model prefix (e.g. anthropic/...)
         if cls._is_openrouter(config):
             params["custom_llm_provider"] = "openai"
+            extra_headers = cls._get_openrouter_headers()
+
+        # OpenCode Zen/Go gateways expose several protocols under one base
+        # URL; LiteLLM must be told which provider to emulate per model.
+        if cls._is_opencode(config) or cls._is_opencode_go(config):
+            endpoint_kind = cls._opencode_endpoint_kind(model)
+            if endpoint_kind == "messages":
+                params["custom_llm_provider"] = "anthropic"
+            elif endpoint_kind == "chat":
+                params["custom_llm_provider"] = "openai"
 
         if extra_headers:
             params["extra_headers"] = extra_headers

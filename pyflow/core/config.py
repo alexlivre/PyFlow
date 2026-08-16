@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         PYFLOW_DOCKER_IMAGE: Imagem usada pelo backend docker.
         PYFLOW_AI_MAX_TOKENS: Máximo de tokens para respostas da IA.
         PYFLOW_AI_TEMPERATURE: Temperatura para geração da IA.
+        MINIMAX_API_KEY: Chave de API do MiniMax (opcional).
+        OPENCODE_API_KEY: Chave de API do OpenCode Zen (opcional).
+        OPENCODE_GO_API_KEY: Chave de API do OpenCode Go (opcional).
         OPENROUTER_API_KEY: Chave de API do OpenRouter (opcional).
         OPENAI_API_KEY: Chave de API da OpenAI (opcional).
         GEMINI_API_KEY: Chave de API do Google Gemini (opcional).
@@ -99,6 +102,9 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
+    MINIMAX_API_KEY: Optional[str] = None
+    OPENCODE_API_KEY: Optional[str] = None
+    OPENCODE_GO_API_KEY: Optional[str] = None
 
     # Segurança
     PYFLOW_API_TOKEN: Optional[str] = None

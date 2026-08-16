@@ -31,6 +31,48 @@ def test_build_model_string_gpt_passthrough():
     assert AIService._build_model_string(cfg) == "gpt-5-nano"
 
 
+def test_build_model_string_minimax_prefix():
+    cfg = AIConfig(provider="minimax", model_id="MiniMax-M3")
+    assert AIService._build_model_string(cfg) == "minimax/MiniMax-M3"
+
+
+def test_build_model_string_opencode_passthrough():
+    cfg = AIConfig(provider="opencode", model_id="deepseek-v4-flash")
+    assert AIService._build_model_string(cfg) == "deepseek-v4-flash"
+
+
+def test_build_model_string_opencode_go_passthrough():
+    cfg = AIConfig(provider="opencode-go", model_id="gpt-5.6-luna")
+    assert AIService._build_model_string(cfg) == "gpt-5.6-luna"
+
+
+def test_opencode_endpoint_kind():
+    assert AIService._opencode_endpoint_kind("gpt-5.6-luna") == "responses"
+    assert AIService._opencode_endpoint_kind("claude-sonnet-4-5") == "messages"
+    assert AIService._opencode_endpoint_kind("minimax-m3") == "messages"
+    assert AIService._opencode_endpoint_kind("deepseek-v4-flash") == "chat"
+    assert AIService._opencode_endpoint_kind("kimi-k3") == "chat"
+
+
+def test_is_opencode_detection():
+    assert AIService._is_opencode(AIConfig(provider="opencode", model_id="x")) is True
+    assert AIService._is_opencode(AIConfig(provider="openai", model_id="x")) is False
+    assert AIService._is_opencode_go(AIConfig(provider="opencode-go", model_id="x")) is True
+    assert AIService._is_opencode_go(AIConfig(provider="opencode", model_id="x")) is False
+
+
+def test_resolve_base_url_opencode_defaults():
+    zen = AIService._resolve_base_url(AIConfig(provider="opencode", model_id="x"))
+    assert zen == "https://opencode.ai/zen/v1"
+    go = AIService._resolve_base_url(AIConfig(provider="opencode-go", model_id="x"))
+    assert go == "https://opencode.ai/zen/go/v1"
+
+
+def test_resolve_base_url_respects_user_override():
+    cfg = AIConfig(provider="opencode", model_id="x", base_url="http://localhost:9999/v1")
+    assert AIService._resolve_base_url(cfg) == "http://localhost:9999/v1"
+
+
 def test_format_code_with_lines():
     out = AIService._format_code_with_lines("a\nb")
     assert out == "001 | a\n002 | b"
@@ -130,7 +172,6 @@ def test_chat_uses_tutor_prompt_from_settings():
         "content": settings.PYFLOW_AI_TUTOR_PROMPT,
     }
 
-
 def test_socratic_hint_level1_asks_guiding_question_without_solution():
     cfg = AIConfig(provider="openai", model_id="gpt-4o", api_key="test-key")
     response = MagicMock()
@@ -201,3 +242,64 @@ def test_socratic_hint_level1_omits_diagnostics():
     assert "division by zero" not in user_content
     assert "Linha" not in user_content
     assert "não está funcionando como esperado" in user_content
+
+
+def test_completion_opencode_messages_model_uses_anthropic_provider():
+    cfg = AIConfig(provider="opencode", model_id="claude-sonnet-4-5", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "ok"
+    mock = AsyncMock(return_value=response)
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService._completion(
+                model="claude-sonnet-4-5",
+                messages=[{"role": "user", "content": "oi"}],
+                config=cfg,
+            )
+        )
+    assert result == "ok"
+    kwargs = mock.await_args.kwargs
+    assert kwargs["custom_llm_provider"] == "anthropic"
+    assert kwargs["base_url"] == "https://opencode.ai/zen/v1"
+    assert "extra_headers" not in kwargs
+
+
+def test_completion_opencode_chat_model_uses_openai_provider():
+    cfg = AIConfig(provider="opencode-go", model_id="deepseek-v4-flash", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "ok"
+    mock = AsyncMock(return_value=response)
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService._completion(
+                model="deepseek-v4-flash",
+                messages=[{"role": "user", "content": "oi"}],
+                config=cfg,
+            )
+        )
+    assert result == "ok"
+    kwargs = mock.await_args.kwargs
+    assert kwargs["custom_llm_provider"] == "openai"
+    assert kwargs["base_url"] == "https://opencode.ai/zen/go/v1"
+    assert "extra_headers" not in kwargs
+
+
+def test_completion_opencode_gpt5_routes_to_responses_api():
+    cfg = AIConfig(provider="opencode", model_id="gpt-5.6-luna", api_key="test-key")
+    mock = AsyncMock(return_value="ok")
+    with patch.object(AIService, "_call_gpt5_responses_api", new=mock):
+        result = asyncio.run(
+            AIService._completion(
+                model="gpt-5.6-luna",
+                messages=[{"role": "user", "content": "oi"}],
+                config=cfg,
+                gpt5_input="input",
+            )
+        )
+    assert result == "ok"
+    mock.assert_awaited_once_with(
+        model="gpt-5.6-luna",
+        input_text="input",
+        api_key="test-key",
+        base_url="https://opencode.ai/zen/v1",
+    )

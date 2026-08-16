@@ -589,9 +589,15 @@
                       <option value="deepseek">DeepSeek</option>
                       <option value="openrouter">OpenRouter</option>
                       <option value="ollama">Ollama (Local)</option>
+                      <option value="minimax">MiniMax</option>
+                      <option value="opencode">OpenCode Zen</option>
+                      <option value="opencode-go">OpenCode Go</option>
                     </select>
                     <p v-if="editingConfig.provider === 'openrouter'" class="text-xs text-muted mt-1">
                       OpenRouter: Use model IDs like "openai/gpt-4o" or "anthropic/claude-3.5-sonnet"
+                    </p>
+                    <p v-if="editingConfig.provider === 'opencode' || editingConfig.provider === 'opencode-go'" class="text-xs text-muted mt-1">
+                      OpenCode: use ids like "deepseek-v4-flash", "gpt-5.6-luna", "minimax-m3"
                     </p>
                   </div>
                     <div class="form-group">
@@ -633,7 +639,7 @@
                             v-else
                             v-model="editingConfig.model_id" 
                             class="input w-full" 
-                            :placeholder="editingConfig.provider === 'openrouter' ? 'e.g., openai/gpt-4o' : 'e.g., gpt-5-nano'" 
+                            :placeholder="editingConfig.provider === 'openrouter' ? 'e.g., openai/gpt-4o' : (editingConfig.provider === 'minimax' ? 'e.g., MiniMax-M3' : 'e.g., gpt-5-nano')" 
                         />
                         </div>
                         

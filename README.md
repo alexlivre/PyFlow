@@ -186,6 +186,9 @@ Você pode configurar o PyFlow via variáveis de ambiente ou arquivo `.env` na r
 | `ANTHROPIC_API_KEY`              | Chave de API da Anthropic (fallback)                   | `null`        |
 | `DEEPSEEK_API_KEY`               | Chave de API do DeepSeek (fallback)                    | `null`        |
 | `OPENROUTER_API_KEY`             | Chave de API do OpenRouter (fallback)                  | `null`        |
+| `MINIMAX_API_KEY`                | Chave de API do MiniMax (fallback)                     | `null`        |
+| `OPENCODE_API_KEY`               | Chave de API do OpenCode Zen (fallback)                | `null`        |
+| `OPENCODE_GO_API_KEY`            | Chave de API do OpenCode Go (fallback)                 | `null`        |
 
 > **Nota:** As chaves de API também podem ser passadas diretamente no corpo da requisição via `ai_config.api_key`.
 
@@ -889,7 +892,7 @@ X-OpenRouter-API-Key: sk-or-v1-...
 ### `AIConfig`
 ```json
 {
-  "provider": "openai | anthropic | google | openrouter | deepseek | ollama",
+  "provider": "openai | anthropic | google | openrouter | deepseek | ollama | minimax | opencode | opencode-go",
   "model_id": "gpt-4o | claude-3.5-sonnet | gemini-1.5-pro | ...",
   "api_key": "sk-... (opcional)",
   "base_url": "https://... (opcional)"
@@ -938,6 +941,9 @@ O campo `ai_config` é fundamental para integração com IA. Aqui estão as conf
 | **DeepSeek**   | `deepseek`    | `deepseek-chat`, `deepseek-coder`         | (não necessário)                  |                                                  |
 | **OpenRouter** | `openrouter`  | `openai/gpt-4o`, `anthropic/claude-3`     | (não necessário, usa padrão)      | Use IDs no formato `provider/model`              |
 | **Ollama**     | `ollama`      | `llama3`, `codellama`, `mistral`          | `http://localhost:11434/v1`       | Requer servidor Ollama local                     |
+| **MiniMax**    | `minimax`     | `MiniMax-M3`, `MiniMax-M2.7`              | (não necessário)                  | Provedor nativo via LiteLLM                       |
+| **OpenCode Zen** | `opencode`  | `gpt-5.6-luna`, `deepseek-v4-flash`, `claude-sonnet-4-5`, `minimax-m3` | `https://opencode.ai/zen/v1` | Protocolo (Responses/Messages/Chat) selecionado automaticamente por modelo |
+| **OpenCode Go**  | `opencode-go` | `gpt-5.6-luna`, `deepseek-v4-flash`, `claude-sonnet-4-5`, `minimax-m3` | `https://opencode.ai/zen/go/v1` | Protocolo (Responses/Messages/Chat) selecionado automaticamente por modelo |
 
 ---
 
