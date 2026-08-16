@@ -635,6 +635,9 @@ const hasDiagnostics = computed(() => {
   return store.output && (store.output.diagnostics || store.output.ai_error_help)
 })
 
+// Autosave editor code changes to localStorage
+watch(() => store.code, () => store.saveCodeToStorage())
+
 // Watch chat history and scroll to bottom
 watch(() => store.chatHistory.length, async () => {
   await nextTick()

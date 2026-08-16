@@ -43,6 +43,7 @@ export const usePyFlowStore = defineStore('pyflow', {
         },
 
         async runCode() {
+            this.saveCodeToStorage()
             this.isRunning = true
             this.output = null
             this.activeTab = 'console'
@@ -141,6 +142,16 @@ export const usePyFlowStore = defineStore('pyflow', {
             this.saveToStorage()
         },
 
+        saveCodeToStorage: (() => {
+            let timer = null
+            return function () {
+                clearTimeout(timer)
+                timer = setTimeout(() => {
+                    if (process.client) localStorage.setItem('pyflow_code', this.code)
+                }, 500)
+            }
+        })(),
+
         saveToStorage() {
             if (process.client) {
                 localStorage.setItem('pyflow_configs', JSON.stringify(this.configs))
@@ -159,6 +170,10 @@ export const usePyFlowStore = defineStore('pyflow', {
                 const active = localStorage.getItem('pyflow_active_config')
                 if (active && this.configs.find(c => c.id === active)) {
                     this.activeConfigId = active
+                }
+                const savedCode = localStorage.getItem('pyflow_code')
+                if (savedCode !== null && savedCode !== '') {
+                    this.code = savedCode
                 }
             }
         }
