@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
 import httpx
 from pydantic import BaseModel
-from pyflow.api.deps import require_token
+from pyflow.api.deps import require_local_origin, require_token
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ class ModelInfo(BaseModel):
 class ModelsResponse(BaseModel):
     data: List[ModelInfo]
 
-@router.get("/models/openrouter", response_model=ModelsResponse, dependencies=[Depends(require_token)])
+@router.get("/models/openrouter", response_model=ModelsResponse, dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def list_openrouter_models(api_key: str = Header(..., alias="X-OpenRouter-API-Key")):
     """
     Lista os modelos disponíveis no OpenRouter.

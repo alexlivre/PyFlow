@@ -20,12 +20,12 @@ from pyflow.core.config import settings
 from pyflow.core.engine import execute_code
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
-from pyflow.api.deps import require_token
+from pyflow.api.deps import require_local_origin, require_token
 
 router = APIRouter()
 
 
-@router.post("/run", response_model=RunResponse, dependencies=[Depends(require_token)])
+@router.post("/run", response_model=RunResponse, dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def run_code_endpoint(req: RunRequest):
     """
     Executa código Python e retorna o resultado.

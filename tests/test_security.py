@@ -44,3 +44,27 @@ def test_connection_file_contains_token(tmp_path, monkeypatch):
     connection.write_connection_file("127.0.0.1", 8000, 123)
     data = json.loads((tmp_path / "connection.json").read_text(encoding="utf-8"))
     assert data["token"] == get_or_create_token()
+
+
+def test_run_with_malicious_origin_is_rejected():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Origin": "https://evil.example.com",
+        },
+    )
+    assert resp.status_code == 403
+
+
+def test_run_with_local_origin_is_accepted():
+    resp = client.post(
+        "/run",
+        json={"code": "print(1)"},
+        headers={
+            "X-PyFlow-Token": get_or_create_token(),
+            "Origin": "http://localhost:3000",
+        },
+    )
+    assert resp.status_code == 200

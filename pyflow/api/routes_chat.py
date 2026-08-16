@@ -17,12 +17,12 @@ from fastapi import APIRouter, Depends
 from pyflow.core.models import ChatRequest, ChatResponse, ChatMessage
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
-from pyflow.api.deps import require_token
+from pyflow.api.deps import require_local_origin, require_token
 
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_token)])
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_token), Depends(require_local_origin)])
 async def chat_endpoint(req: ChatRequest):
     """
     Processa uma mensagem de chat com IA.
