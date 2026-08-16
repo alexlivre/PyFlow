@@ -500,3 +500,88 @@ Por favor, forneça o diagnóstico JSON.
             error_label = "Falha na IA GPT-5 (chat)" if gpt5_input else "Falha na IA (chat)"
             logger.error(f"{error_label}: {e}")
             return f"Erro ao contatar IA: {str(e)}"
+
+    @classmethod
+    async def socratic_hint(cls, code: str, diagnostics: Diagnostics | None, level: int, config: AIConfig) -> str:
+        """
+        Gera uma dica socrática progressiva para o código do usuário.
+
+        Utiliza o modelo de IA configurado para guiar o aluno na
+        descoberta do erro em três níveis de profundidade:
+
+        - Nível 1: pergunta-guia conceitual, sem fornecer a solução.
+        - Nível 2: localiza a área problemática e o conceito envolvido.
+        - Nível 3: quase-solução, apontando a causa exata e um esboço.
+
+        Args:
+            code: Código Python atual no editor.
+            diagnostics: Informações estruturadas do erro (opcional).
+            level: Nível da dica (1 a 3).
+            config: Configuração do provedor de IA.
+
+        Returns:
+            str: Dica da IA formatada em Markdown.
+
+        Note:
+            O código é formatado com números de linha para referência.
+            O prompt muda conforme o nível para escapar da resposta direta.
+        """
+        model = cls._build_model_string(config)
+        level = max(1, min(3, level))
+
+        level_instructions = {
+            1: (
+                "Nível 1: faça apenas uma pergunta-guia conceitual que leve o aluno "
+                "a descobrir sozinho onde está o problema. NÃO forneça a solução e "
+                "NÃO mencione a linha do erro."
+            ),
+            2: (
+                "Nível 2: localize a área problemática indicando a linha aproximada "
+                "e o conceito envolvido, mas sem dar a correção pronta."
+            ),
+            3: (
+                "Nível 3: dê uma quase-solução: aponte a causa exata e ofereça um "
+                "esboço ou pseudocódigo, incentivando o aluno a completar."
+            ),
+        }
+
+        system_prompt = (
+            "Você é um tutor socrático de Python para um adulto iniciante. "
+            "Responda em português, usando Markdown curto.\n\n"
+            f"Instrução desta resposta: {level_instructions[level]}"
+        )
+
+        formatted_code = cls._format_code_with_lines(code)
+
+        user_content = f"""Código do usuário (com números de linha):
+```text
+{formatted_code}
+```
+"""
+
+        if diagnostics:
+            user_content += f"""
+Diagnóstico do erro:
+Tipo: {diagnostics.error_type}
+Mensagem: {diagnostics.message}
+Linha: {diagnostics.line}
+Contexto: {diagnostics.context or "N/A"}
+"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        gpt5_input = f"{system_prompt}\n\n{user_content}" if cls._is_gpt5_model(model) else None
+
+        try:
+            return await cls._completion(
+                model=model,
+                messages=messages,
+                config=config,
+                gpt5_input=gpt5_input,
+            )
+        except Exception as e:
+            error_label = "Falha na IA GPT-5 (socratic_hint)" if gpt5_input else "Falha na IA (socratic_hint)"
+            logger.error(f"{error_label}: {e}")
+            return f"Erro ao contatar IA: {str(e)}"

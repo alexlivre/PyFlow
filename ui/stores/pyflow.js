@@ -13,6 +13,12 @@ export const usePyFlowStore = defineStore('pyflow', {
         chatHistory: [],
         isChatting: false,
 
+        // Socratic Hint
+        hintText: '',
+        hintLevel: 0,
+        hintTarget: null,
+        isHinting: false,
+
         // Configuration
         activeConfigId: 'default',
         apiToken: '',
@@ -80,6 +86,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                     }
                 })
                 this.output = res
+                this.syncHintTarget()
 
                 // Auto-switch to diagnostics if error and diagnostics exist
                 if (res.status === 'error' || res.diagnostics) {
@@ -150,6 +157,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                         } else if (evt.type === 'done') {
                             receivedTerminal = true
                             this.output = evt.result
+                            this.syncHintTarget()
                             if (evt.result.diagnostics || evt.result.ai_error_help) this.activeTab = 'diagnostics'
                         } else if (evt.type === 'error') {
                             receivedTerminal = true
@@ -215,6 +223,46 @@ export const usePyFlowStore = defineStore('pyflow', {
                 this.chatHistory.push({ role: 'assistant', content: 'Erro ao conectar ao chat: ' + err.message })
             } finally {
                 this.isChatting = false
+            }
+        },
+
+        syncHintTarget() {
+            const id = this.output?.request_id || null
+            if (id !== this.hintTarget) {
+                this.hintTarget = id
+                this.hintLevel = 0
+                this.hintText = ''
+            }
+        },
+
+        async requestHint(level) {
+            this.isHinting = true
+            const config = this.configs.find(c => c.id === this.activeConfigId)
+            const headers = this.apiToken ? { 'X-PyFlow-Token': this.apiToken } : {}
+
+            try {
+                const res = await $fetch('/api/hint', {
+                    method: 'POST',
+                    headers,
+                    body: {
+                        code: this.code,
+                        level,
+                        diagnostics: this.output?.diagnostics || undefined,
+                        ai_config: config ? {
+                            provider: config.provider,
+                            model_id: config.model_id,
+                            api_key: config.api_key || undefined,
+                            base_url: config.base_url || undefined
+                        } : undefined
+                    }
+                })
+
+                this.hintText = res.hint
+                this.hintLevel = level
+            } catch (err) {
+                this.hintText = 'Erro ao solicitar dica: ' + err.message
+            } finally {
+                this.isHinting = false
             }
         },
 

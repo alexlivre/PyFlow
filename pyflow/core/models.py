@@ -170,6 +170,7 @@ class ChatRequest(BaseModel):
     user_message: str
     history: List[ChatMessage] = []
     ai_config: Optional[AIConfig] = None
+    mode: Optional[Literal["tutor", "hint"]] = None
 
 
 class ChatResponse(BaseModel):
@@ -186,6 +187,40 @@ class ChatResponse(BaseModel):
 
     reply: str
     history: List[ChatMessage]
+    request_id: str
+
+
+# --- Hint Endpoint ---
+class HintRequest(BaseModel):
+    """
+    Requisição de dica socrática com IA.
+
+    Contém o código, o nível de dica (1 a 3) e o diagnóstico do erro.
+
+    Attributes:
+        code: Código Python atual no editor.
+        level: Nível da dica (1 = pergunta-guia, 2 = localiza o problema,
+            3 = quase-solução).
+        diagnostics: Diagnóstico do erro (opcional).
+        ai_config: Configuração do provedor de IA (opcional).
+    """
+
+    code: str
+    level: int = Field(1, ge=1, le=3)
+    diagnostics: Optional[Diagnostics] = None
+    ai_config: Optional[AIConfig] = None
+
+
+class HintResponse(BaseModel):
+    """
+    Resposta de dica socrática da IA.
+
+    Attributes:
+        hint: Dica gerada pela IA.
+        request_id: Identificador único da requisição.
+    """
+
+    hint: str
     request_id: str
 
 

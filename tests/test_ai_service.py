@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from pyflow.core.ai_service import AIService
 from pyflow.core.config import settings
-from pyflow.core.models import AIConfig, ChatMessage
+from pyflow.core.models import AIConfig, ChatMessage, Diagnostics
 
 
 def test_chat_message_rejects_invalid_role():
@@ -129,3 +129,48 @@ def test_chat_uses_tutor_prompt_from_settings():
         "role": "system",
         "content": settings.PYFLOW_AI_TUTOR_PROMPT,
     }
+
+
+def test_socratic_hint_level1_asks_guiding_question_without_solution():
+    cfg = AIConfig(provider="openai", model_id="gpt-4o", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "O que você acha que está errado?"
+    mock = AsyncMock(return_value=response)
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService.socratic_hint(
+                code="x = 1\nprint(y)",
+                diagnostics=None,
+                level=1,
+                config=cfg,
+            )
+        )
+    assert result == "O que você acha que está errado?"
+    system_prompt = mock.await_args.kwargs["messages"][0]["content"]
+    assert "pergunta" in system_prompt
+    assert "NÃO forneça a solução" in system_prompt
+
+
+def test_socratic_hint_level3_includes_diagnostics_line():
+    cfg = AIConfig(provider="openai", model_id="gpt-4o", api_key="test-key")
+    response = MagicMock()
+    response.choices[0].message.content = "Quase lá: confira a linha 2"
+    mock = AsyncMock(return_value=response)
+    diag = Diagnostics(
+        error_type="NameError",
+        message="name 'y' is not defined",
+        line=2,
+    )
+    with patch("pyflow.core.ai_service.acompletion", new=mock):
+        result = asyncio.run(
+            AIService.socratic_hint(
+                code="x = 1\nprint(y)",
+                diagnostics=diag,
+                level=3,
+                config=cfg,
+            )
+        )
+    assert result == "Quase lá: confira a linha 2"
+    user_content = mock.await_args.kwargs["messages"][1]["content"]
+    assert "NameError" in user_content
+    assert "Linha" in user_content

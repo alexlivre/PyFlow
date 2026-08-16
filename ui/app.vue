@@ -258,6 +258,28 @@
                   </button>
                 </div>
               </div>
+
+              <!-- Socratic Hint Card -->
+              <div class="ai-suggestion-card animate-slide-up">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                  <span class="badge badge-primary badge-glow">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-1">
+                      <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>
+                    </svg>
+                    Tutor Socrático
+                  </span>
+                  <button class="btn btn-secondary text-xs" :disabled="store.isHinting" @click="askHint">
+                    <span v-if="store.isHinting" class="spinner w-4 h-4"></span>
+                    <template v-else>
+                      {{ store.hintLevel === 0 ? 'Dica' : 'Dica (Nível ' + Math.min(3, store.hintLevel + 1) + ')' }}
+                    </template>
+                  </button>
+                </div>
+                <p class="text-secondary text-sm mb-2">
+                  Receba orientação progressiva em vez da solução pronta.
+                </p>
+                <div v-if="store.hintText" class="markdown-content" v-html="renderMarkdown(store.hintText)"></div>
+              </div>
             </div>
             
             <!-- Empty State -->
@@ -686,6 +708,11 @@ const sendMessage = () => {
   if (!chatInput.value.trim()) return
   store.sendChatMessage(chatInput.value)
   chatInput.value = ''
+}
+
+const askHint = () => {
+  const nextLevel = Math.min(3, store.hintLevel + 1)
+  store.requestHint(nextLevel)
 }
 
 const applyFix = (code) => {
