@@ -115,7 +115,7 @@ O PyFlow foi projetado para ser o motor de execução de código para aplicaçõ
 
 ### 1. Instalando Dependências
 
-Certifique-se de ter **Python 3.14+** instalado. No diretório raiz do projeto:
+Certifique-se de ter **Python 3.11+** instalado. No diretório raiz do projeto:
 
 ```bash
 pip install -r requirements.txt
