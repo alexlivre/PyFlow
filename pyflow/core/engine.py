@@ -34,7 +34,6 @@ from pyflow.core.diagnostics import (
     create_blocked_diagnostics,
     create_timeout_diagnostics,
     create_output_limit_diagnostics,
-    sanitize_path
 )
 
 
@@ -327,6 +326,7 @@ async def execute_code(
             # filename can still locate the user's frame, and raw_traceback
             # keeps its unsanitized-on-request contract.
             stderr_str = _sanitize_output(stderr_str, tmp_file)
+            stdout_str = _sanitize_output(stdout_str, tmp_file)
             
         return RunResponse(
             status=status,

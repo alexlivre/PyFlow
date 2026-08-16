@@ -44,10 +44,10 @@ def sanitize_path(path: str, user_filename: str = "<user_code>") -> str:
         String with temp-file occurrences sanitized.
 
     Example:
-        >>> sanitize_path("File \\"/tmp/pyflow_tmp_abc123.py\\", line 1")
+        >>> sanitize_path("File \\"/tmp/pyflow_tmp_req_abc123.py\\", line 1")
         'File "/tmp/<user_code>", line 1'
     """
-    return re.sub(r"pyflow_tmp_[0-9a-fA-F_\-]+\.py", user_filename, path)
+    return re.sub(r"pyflow_tmp_[A-Za-z0-9_\-]+\.py", user_filename, path)
 
 
 def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = False) -> Diagnostics:
