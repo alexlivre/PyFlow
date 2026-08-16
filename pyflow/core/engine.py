@@ -38,6 +38,11 @@ from pyflow.core.diagnostics import (
 )
 
 
+def _sanitize_output(text: str, tmp_file: Path) -> str:
+    """Replace the temp-file path in output with a generic placeholder."""
+    return text.replace(str(tmp_file), "<user_code>")
+
+
 async def _read_stream(stream: asyncio.StreamReader, limit: int) -> Tuple[str, bool]:
     """
     Lê dados de um stream assíncrono até o limite especificado.
@@ -296,6 +301,9 @@ async def execute_code(
              if process.returncode is None:
                  _kill_process_tree(process.pid)
             
+             # Never leak the server temp path, even in a truncated chunk.
+             stdout_str = _sanitize_output(stdout_str, tmp_file)
+             stderr_str = _sanitize_output(stderr_str, tmp_file)
              return RunResponse(
                 status="error",
                 stdout=stdout_str + ("\n(truncado)" if stdout_trunc else ""),
@@ -318,7 +326,7 @@ async def execute_code(
             # with a generic placeholder. Parsing happens first so the real
             # filename can still locate the user's frame, and raw_traceback
             # keeps its unsanitized-on-request contract.
-            stderr_str = stderr_str.replace(str(tmp_file), "<user_code>")
+            stderr_str = _sanitize_output(stderr_str, tmp_file)
             
         return RunResponse(
             status=status,

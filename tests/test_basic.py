@@ -22,11 +22,14 @@ def test_sanitize_path():
     """
     Testa a sanitização de caminhos de arquivos temporários.
 
-    Verifica que caminhos contendo 'pyflow_tmp_' são substituídos
-    por '<user_code>', enquanto outros caminhos são mantidos.
+    Verifica que ocorrências de arquivos temporários 'pyflow_tmp_*'
+    são substituídas por '<user_code>', preservando o restante da
+    string, enquanto outros caminhos são mantidos intactos.
     """
-    assert sanitize_path("/tmp/pyflow_tmp_123.py") == "<user_code>"
+    assert sanitize_path("/tmp/pyflow_tmp_123.py") == "/tmp/<user_code>"
     assert sanitize_path("/home/user/code.py") == "/home/user/code.py"
+    assert sanitize_path('File "C:/tmp/pyflow_tmp_abc123.py", line 1') == 'File "C:/tmp/<user_code>", line 1'
+    assert sanitize_path("a/pyflow_tmp_1.py b/pyflow_tmp_2.py") == "a/<user_code> b/<user_code>"
 
 
 def test_parse_simple_error():

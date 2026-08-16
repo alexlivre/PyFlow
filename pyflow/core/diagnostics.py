@@ -30,27 +30,24 @@ FILE_LINE_REGEX = re.compile(r'\s*File "([^"]+)", line (\d+)(?:, in (.+))?')
 
 def sanitize_path(path: str, user_filename: str = "<user_code>") -> str:
     """
-    Substitui o nome do arquivo temporário por um nome genérico.
+    Replace temp-file occurrences in a path string with a generic name.
 
-    Remove informações de caminho que podem expor detalhes do sistema
-    ou estrutura de diretórios do servidor.
+    Removes path information that could expose system details or the
+    server's directory structure, replacing only the temp-file occurrences
+    while preserving the rest of the string.
 
     Args:
-        path: Caminho ou string contendo caminhos para sanitizar.
-        user_filename: Nome genérico para substituir (padrão: '<user_code>').
+        path: Path or string containing paths to sanitize.
+        user_filename: Generic name to use as replacement (default: '<user_code>').
 
     Returns:
-        String com caminhos sanitizados.
+        String with temp-file occurrences sanitized.
 
     Example:
-        >>> sanitize_path("/tmp/pyflow_tmp_abc123.py")
-        '<user_code>'
+        >>> sanitize_path("File \\"/tmp/pyflow_tmp_abc123.py\\", line 1")
+        'File "/tmp/<user_code>", line 1'
     """
-    if user_filename in path or "pyflow_tmp_" in path:
-        return "<user_code>"
-    # Simple heuristic to shorten venv/system paths could go here,
-    # but strictly replacing the temp file is the main requirement.
-    return path
+    return re.sub(r"pyflow_tmp_[0-9a-fA-F_\-]+\.py", user_filename, path)
 
 
 def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = False) -> Diagnostics:
