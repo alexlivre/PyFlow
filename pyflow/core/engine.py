@@ -321,13 +321,14 @@ async def execute_code(
         if status == "error":
             # Parse diagnostics
             diagnostics = parse_traceback_str(stderr_str, tmp_file.name, include_raw=include_raw_traceback)
-            # Never leak the server temp path in the traceback; replace it
-            # with a generic placeholder. Parsing happens first so the real
-            # filename can still locate the user's frame, and raw_traceback
-            # keeps its unsanitized-on-request contract.
-            stderr_str = _sanitize_output(stderr_str, tmp_file)
-            stdout_str = _sanitize_output(stdout_str, tmp_file)
-            
+
+        # Never leak the server temp path in any branch; replace it with a
+        # generic placeholder. Parsing happens first so the real filename can
+        # still locate the user's frame, and raw_traceback keeps its
+        # unsanitized-on-request contract.
+        stdout_str = _sanitize_output(stdout_str, tmp_file)
+        stderr_str = _sanitize_output(stderr_str, tmp_file)
+
         return RunResponse(
             status=status,
             stdout=stdout_str,

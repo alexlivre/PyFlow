@@ -115,6 +115,21 @@ def test_syntax_error_diagnostics():
     assert result.diagnostics.line is not None
 
 
+def test_success_branch_does_not_leak_temp_path():
+    result = asyncio.run(
+        execute_code(
+            request_id="req_success_leak",
+            code="print(__file__)",
+            stdin=None,
+            timeout_seconds=5,
+            max_output_chars=1000,
+        )
+    )
+    assert result.status == "success"
+    assert "<user_code>" in result.stdout
+    assert "pyflow_tmp" not in result.stdout
+
+
 def test_traceback_paths_are_sanitized():
     result = asyncio.run(
         execute_code(
