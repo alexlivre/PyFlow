@@ -118,6 +118,20 @@ O PyFlow foi projetado para ser o motor de execução de código para aplicaçõ
 Certifique-se de ter **Python 3.11+** instalado. No diretório raiz do projeto:
 
 ```bash
+pip install -e .
+```
+
+A instalação **editable** disponibiliza o pacote `pyflow` e o entry point
+`pyflow` (CLI) — veja [Via CLI (Typer)](#via-cli-typer) abaixo.
+
+> **Nota:** as versões das dependências em `pyproject.toml` são o espelho
+> das fixadas em `requirements.txt`. Para testes, instale também o extra de
+> desenvolvimento: `pip install -e ".[dev]"`.
+
+Alternativamente, sem instalar o pacote, é possível instalar apenas as
+dependências:
+
+```bash
 pip install -r requirements.txt
 ```
 
