@@ -121,7 +121,8 @@ async def execute_code(
     code: str,
     stdin: Optional[str],
     timeout_seconds: int,
-    max_output_chars: int
+    max_output_chars: int,
+    include_raw_traceback: bool = False
 ) -> RunResponse:
     """
     Executa código Python em um subprocesso isolado.
@@ -136,6 +137,8 @@ async def execute_code(
         stdin: Entrada padrão para o código (opcional).
         timeout_seconds: Tempo máximo de execução em segundos.
         max_output_chars: Limite máximo de caracteres na saída.
+        include_raw_traceback: Se o traceback completo (não sanitizado)
+            deve ser incluído no diagnóstico.
 
     Returns:
         RunResponse: Resultado da execução com status, saídas e diagnósticos.
@@ -272,7 +275,7 @@ async def execute_code(
         
         if status == "error":
             # Parse diagnostics
-            diagnostics = parse_traceback_str(stderr_str, tmp_file.name)
+            diagnostics = parse_traceback_str(stderr_str, tmp_file.name, include_raw=include_raw_traceback)
             
         return RunResponse(
             status=status,

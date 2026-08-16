@@ -53,7 +53,7 @@ def sanitize_path(path: str, user_filename: str = "<user_code>") -> str:
     return path
 
 
-def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
+def parse_traceback_str(stderr: str, user_filename: str, include_raw: bool = False) -> Diagnostics:
     """
     Analisa uma string de traceback e extrai informações estruturadas.
 
@@ -63,6 +63,8 @@ def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
     Args:
         stderr: String contendo o traceback completo.
         user_filename: Nome do arquivo temporário para buscar no traceback.
+        include_raw: Se o traceback completo (não sanitizado) deve ser
+            incluído no diagnóstico.
 
     Returns:
         Diagnostics: Objeto com informações estruturadas do erro.
@@ -141,7 +143,7 @@ def parse_traceback_str(stderr: str, user_filename: str) -> Diagnostics:
         message=message,
         line=line_num,
         context=context,
-        raw_traceback=None  # Filled by caller if needed
+        raw_traceback=stderr.strip() if include_raw else None
     )
 
 

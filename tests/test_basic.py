@@ -71,4 +71,16 @@ SyntaxError: expected ':'
     assert "^" in d.context
 
 
+def test_parse_with_raw_traceback():
+    stderr = 'Traceback (most recent call last):\n  File "pyflow_tmp_1.py", line 1, in <module>\n    x\nNameError: name \'x\' is not defined\n'
+    d = parse_traceback_str(stderr, "pyflow_tmp_1.py", include_raw=True)
+    assert d.raw_traceback == stderr.strip()
+
+
+def test_parse_without_raw_traceback():
+    stderr = 'Traceback (most recent call last):\n  File "pyflow_tmp_1.py", line 1, in <module>\n    x\nNameError: name \'x\' is not defined\n'
+    d = parse_traceback_str(stderr, "pyflow_tmp_1.py", include_raw=False)
+    assert d.raw_traceback is None
+
+
 # Integration tests would require the server to be running or mocking execution
