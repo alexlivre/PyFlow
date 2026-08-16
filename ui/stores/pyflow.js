@@ -102,9 +102,9 @@ export const usePyFlowStore = defineStore('pyflow', {
                     stdout: '',
                     execution_time_ms: 0
                 }
-                this.syncHintTarget()
             } finally {
                 this.isRunning = false
+                this.syncHintTarget()
             }
         },
 
@@ -168,7 +168,6 @@ export const usePyFlowStore = defineStore('pyflow', {
                                 stdout: '',
                                 execution_time_ms: 0
                             }
-                            this.syncHintTarget()
                         }
                     }
                 }
@@ -189,6 +188,7 @@ export const usePyFlowStore = defineStore('pyflow', {
                 }
             } finally {
                 this.isRunning = false
+                this.syncHintTarget()
             }
         },
 
