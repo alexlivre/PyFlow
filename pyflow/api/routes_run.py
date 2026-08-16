@@ -14,17 +14,18 @@ O endpoint suporta:
 A execução ocorre em um subprocesso isolado para segurança.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pyflow.core.models import RunRequest, RunResponse
 from pyflow.core.config import settings
 from pyflow.core.engine import execute_code
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
+from pyflow.api.deps import require_token
 
 router = APIRouter()
 
 
-@router.post("/run", response_model=RunResponse)
+@router.post("/run", response_model=RunResponse, dependencies=[Depends(require_token)])
 async def run_code_endpoint(req: RunRequest):
     """
     Executa código Python e retorna o resultado.

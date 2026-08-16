@@ -17,6 +17,7 @@ Exemplo de uso:
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 from typing import Optional
 
 
@@ -66,6 +67,9 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
 
+    # Segurança
+    PYFLOW_API_TOKEN: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -74,3 +78,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Shared filesystem locations (kept here to avoid circular imports between
+# pyflow.core.connection and pyflow.core.security).
+CONNECTION_DIR = Path.home() / ".pyflow"
+CONNECTION_FILE = CONNECTION_DIR / "connection.json"

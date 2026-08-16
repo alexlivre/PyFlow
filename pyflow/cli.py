@@ -23,9 +23,9 @@ import os
 from pathlib import Path
 from loguru import logger
 
-from pyflow.core.config import settings
+from pyflow.core.config import settings, CONNECTION_DIR
 from pyflow.utils.net import find_available_port
-from pyflow.core.connection import write_connection_file, CONNECTION_DIR
+from pyflow.core.connection import write_connection_file
 
 app = typer.Typer()
 

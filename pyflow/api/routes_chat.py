@@ -13,15 +13,16 @@ O endpoint recebe:
 E retorna a resposta da IA junto com o histórico atualizado.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pyflow.core.models import ChatRequest, ChatResponse, ChatMessage
 from pyflow.core.ai_service import AIService
 from pyflow.utils.ids import generate_request_id
+from pyflow.api.deps import require_token
 
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_token)])
 async def chat_endpoint(req: ChatRequest):
     """
     Processa uma mensagem de chat com IA.
